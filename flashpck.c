@@ -6,6 +6,7 @@
 
 #pragma pack(push, 1) // All packed struct, don't let compiler align
 
+// not sure what this struct
 typedef struct {
     uint8_t num;
     uint8_t frag;
@@ -58,6 +59,56 @@ typedef struct {
     // that there's a specific "instruction" that marks the end of the code.
     // shoutout to bruno for making imhex pattern code that parses the AVM1 bytecode
 } AVM1Bytecode;
+
+// TODO: swfBITMAP
+// i've discovered with the help of this wonderful tool called texture finder that
+// at least in the xbox version, images are stored in the DXT5 format.
+
+// taken from theikus go implementation 
+typedef struct {
+    uint32_t unk1[2];
+    uint16_t width; 
+    uint16_t height; 
+    uint32_t data_size; // W x H x 4
+    uint32_t unk2;
+    uint32_t ptr_to_info2;
+    uint32_t unk3;
+    uint8_t pad1[4];
+} bmpInfo1;
+
+
+typedef struct {
+    uint32_t unk1;
+    uint32_t ptr1;
+    uint32_t ptr_to_info3;
+    uint16_t maybe_bits;
+    uint16_t width;
+    uint16_t height;
+    uint8_t pad1[12];
+} bmpInfo2;
+
+typedef struct {
+    uint16_t unk1;
+    uint16_t unk2;
+    uint32_t unk3;
+    uint32_t unk4;
+    uint32_t unk5;
+    uint32_t unk6;
+    // padded until address is multiple of 0x40, not 44
+    //char pad1[44];
+    //void* data;
+} bmpInfo3;
+
+typedef struct {
+    uint32_t ptr_to_info1; // pointer to something
+    // in pixels
+    uint16_t width; 
+    uint16_t height;
+
+    float inv_width;  // 1/width
+    float inv_height; // 1/height
+} swfBITMAP;
+
 
 typedef struct {
     uint8_t pad1[3]; // 0xCDCDCD
@@ -277,11 +328,31 @@ int main(int argc, char* argv[])
         switch (oti->objectType){
         case 2: // swfSPRITE
             swfSPRITE* sprite = (swfSPRITE*)(oti + 1);
-            //uint32_t sprite_addr = *ol;
 
             swfFRAME* frame = getPtrFromOgAddress(sprite->frames);
             list_frames(frame, sprite->frame_count32);
             break;
+        case 4: // swfBITMAP
+            swfBITMAP* bitmap = (swfBITMAP*)(oti + 1);
+            printf("w: %d, h: %d\n", bitmap->width, bitmap->height);
+            printf("info 1... 0x%.8x\n", bitmap->ptr_to_info1);
+            bmpInfo1* info1 = getPtrFromOgAddress(bitmap->ptr_to_info1);
+            printf("info 2... 0x%.8x\n", info1->ptr_to_info2);
+            bmpInfo2* info2 = getPtrFromOgAddress(info1->ptr_to_info2);
+            printf("info 3... 0x%.8x\n", info2->ptr_to_info3);
+            bmpInfo3* info3 = getPtrFromOgAddress(info2->ptr_to_info3);
+            uint32_t end = info2->ptr_to_info3 + sizeof(bmpInfo3);
+            //printf("%.8x end", end)
+            // getting the closest biggest address multiple of 0x40
+            uint32_t multiple = 0x80;
+            uint32_t offset = (multiple - (end % multiple)) % multiple;
+            uint32_t data_address = offset + end;
+            uint8_t* value = getPtrFromOgAddress(data_address);
+            uint32_t image_end = data_address + (info1->width * info1->height);
+            printf("Image data localized at 0x%.8x (begin), 0x%.8x (end)\n", data_address, image_end);
+            if(*value == 0xCD) {
+                printf("=================\nWOOOOOPS LOOKS LIKE YOU ARE FUCKING WRONG\n==============\n");
+            }
         default:
             break;
         }
