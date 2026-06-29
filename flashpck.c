@@ -15,17 +15,18 @@
 // capiche?
 
 // printing swfOBJECTS config
-#define PRINT_SPRITE 0
-#define PRINT_BITMAP 0
-#define PRINT_SHAPE 1
+#define PRINT_SPRITE 1
+#define PRINT_BITMAP 1
 #define PRINT_TEXT 1
-#define PRINT_EDITTEXT 1
 #define PRINT_FONT 1
-#define PRINT_SOUND 1
-#define PRINT_MORPHSHAPE 1
+// all of these to the top were reversed in some way ,
+// bottom ones still a work in progress for the basic
+// swf object types
+#define PRINT_SHAPE 1
+#define PRINT_EDITTEXT 1
 
 // write bitmap to files, must have PRINT_BITMAP on
-#define WRITE_BITMAP 0
+#define WRITE_BITMAP 1
 
 // clankkka wrote this
 typedef struct {
@@ -613,7 +614,6 @@ int main(int argc, char* argv[]) {
                         break;
                 }
             }
-
             break;
 
         default:
