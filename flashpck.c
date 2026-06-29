@@ -9,11 +9,25 @@
 
 #pragma pack(push, 1) // All packed struct, don't let compiler align
 
+// just to make things more clear
+// when i refer to "character id", "object id" or whatever id,
+// i'm referring to its position in the swfOBJECTS array pointed by swfFILE.
+// capiche?
 
+// printing swfOBJECTS config
+#define PRINT_SPRITE 0
+#define PRINT_BITMAP 0
+#define PRINT_SHAPE 1
+#define PRINT_TEXT 1
+#define PRINT_EDITTEXT 1
+#define PRINT_FONT 1
+#define PRINT_SOUND 1
+#define PRINT_MORPHSHAPE 1
+
+// write bitmap to files, must have PRINT_BITMAP on
 #define WRITE_BITMAP 0
 
-
-// remove later
+// clankkka wrote this
 typedef struct {
     uint32_t dwSize;
     uint32_t dwFlags;
@@ -74,7 +88,7 @@ void write_dds_header(FILE *f, uint32_t width, uint32_t height, uint32_t linearS
 
     fwrite(&h, sizeof(h), 1, f);
 }
-// remove later
+// clankkka wrote this
 
 // not sure what this struct
 typedef struct {
@@ -142,21 +156,21 @@ typedef struct {
     uint16_t height; 
     uint32_t data_size; // W x H x 4
     uint32_t unk2;
-    uint32_t ptr_to_info2;
+    uint32_t current_node_ptr;
     uint32_t unk3;
     uint8_t pad1[4];
 } bmpInfo1;
 
 
 typedef struct {
-    uint32_t unk1;
-    uint32_t ptr1;
-    uint32_t ptr_to_info3;
+    uint32_t unk1; // always 1???
+    uint32_t next_image_ptr; //????? it points to another linked list node
+    uint32_t ptr_to_texture;
     uint16_t maybe_bits;
     uint16_t width;
     uint16_t height;
     uint8_t pad1[12];
-} bmpInfo2;
+} BitmapLinkedListNode;
 
 typedef struct {
     uint16_t unk1;
@@ -179,6 +193,53 @@ typedef struct {
     float inv_height; // 1/height
 } swfBITMAP;
 
+typedef struct {
+    uint8_t r, g, b, a;
+} RGBAcolor;
+
+typedef struct {
+    float ax, ay, bx, by, cx, cy;
+} swfMATRIX;
+
+// i should have used C++ class inheritance
+typedef enum {
+    END = 0,
+    FONT,
+    COLOR,
+    YOFFSET,
+    XOFFSET,
+    GLYPHENTRY
+} TextRecord_Types;
+
+typedef struct {
+    uint16_t type; // value: 1
+    uint16_t font_id; // object id of the font
+    uint16_t font_size;
+} TextRecord_FontConfig; // case 1
+typedef struct {
+    uint16_t type; // value: 2
+    uint32_t color_rgba;
+} TextRecord_Color;
+typedef struct {
+    uint16_t type; // value: 3 or 4
+    int16_t  offset;    
+} TextRecord_Offset;
+
+typedef struct {
+    uint16_t glyph_index; // index in the font table
+    uint16_t glyph_advance; // horizontal distance to the next glyph
+} GlyphEntry;
+
+typedef struct {
+    uint16_t type; // value: 4
+    uint16_t glyph_count;
+    GlyphEntry* entries;
+} TextRecord_GlyphArray; // case 5
+
+typedef struct {
+    swfMATRIX matrix;
+    uint32_t text_records_ptr;
+} swfTEXT;
 
 typedef struct {
     uint8_t pad1[3]; // 0xCDCDCD
@@ -224,12 +285,6 @@ typedef struct {
     //uint32_t unk4;
     //uint32_t ptr2ptr2bytecode; // unknown pointer for now
 } swfCMD_clipEvent;
-
-typedef struct {
-    float matrix[4]; // i suppose this is a 4x4 matrix
-    uint32_t null1[2];
-    uint32_t fill_color_ptr;
-} swfTEXT;
 
 // fillstyle commands sheet:
 // 0: end of commands
@@ -375,9 +430,12 @@ int main(int argc, char* argv[]) {
     uint32_t object_base = savedOgBaseAddress + 0x80;
 
     // Background
-    swfFRAME *file_frame = getPtrFromOgAddress(si->frames);
-    printf("Reading background frames...\n");
-    list_frames(file_frame, si->frame_count);
+
+    if(PRINT_SPRITE) {
+        swfFRAME *file_frame = getPtrFromOgAddress(si->frames);
+        printf("Reading background frames...\n");
+        list_frames(file_frame, si->frame_count);
+    }
 
     char outdir[1024];
     char input_copy[1024];
@@ -385,7 +443,7 @@ int main(int argc, char* argv[]) {
     // if i care to write the bitmap,
     // i create a folder
     if(WRITE_BITMAP) {
-    
+        // clankkka wrote this
         strncpy(input_copy, fileInputPath, sizeof(input_copy));
         input_copy[sizeof(input_copy) - 1] = '\0';
     
@@ -397,6 +455,7 @@ int main(int argc, char* argv[]) {
         snprintf(outdir, sizeof(outdir), "%s", input_copy);
     
         mkdir(outdir, 0755);
+        // clankkka over
     }
 
     printf("Where the object list is located: 0x%.8x\n", si->pointToObjectPtrList);
@@ -416,36 +475,46 @@ int main(int argc, char* argv[]) {
         }
         switch (oti->objectType){
         case 2: // swfSPRITE
+            if(!PRINT_SPRITE) break;
+
             swfSPRITE* sprite = (swfSPRITE*)(oti + 1);
 
             swfFRAME* frame = getPtrFromOgAddress(sprite->frames);
             list_frames(frame, sprite->frame_count32);
             break;
         case 4: // swfBITMAP
+            if(!PRINT_BITMAP) break;
+
             swfBITMAP* bitmap = (swfBITMAP*)(oti + 1);
             printf("w: %d, h: %d\n", bitmap->width, bitmap->height);
             printf("info 1... 0x%.8x\n", bitmap->ptr_to_info1);
             bmpInfo1* info1 = getPtrFromOgAddress(bitmap->ptr_to_info1);
-            printf("info 2... 0x%.8x\n", info1->ptr_to_info2);
-            bmpInfo2* info2 = getPtrFromOgAddress(info1->ptr_to_info2);
-            printf("info 3... 0x%.8x\n", info2->ptr_to_info3);
-            bmpInfo3* info3 = getPtrFromOgAddress(info2->ptr_to_info3);
-            uint32_t end = info2->ptr_to_info3 + sizeof(bmpInfo3);
+            printf("info 2... 0x%.8x\n", info1->current_node_ptr);
+            BitmapLinkedListNode* info2 = getPtrFromOgAddress(info1->current_node_ptr);
+            printf("info 3... 0x%.8x\n", info2->ptr_to_texture);
+            bmpInfo3* info3 = getPtrFromOgAddress(info2->ptr_to_texture);
+            uint32_t end = info2->ptr_to_texture + sizeof(bmpInfo3);
             //printf("%.8x end", end)
             // getting the closest biggest address multiple of 0x80
             uint32_t multiple = 0x80;
             uint32_t offset = (multiple - (end % multiple)) % multiple;
             uint32_t data_address = offset + end;
             uint8_t* value = getPtrFromOgAddress(data_address);
-            uint32_t image_end = data_address + (bitmap->width * bitmap->height);
             // I'm not sure what is going on but few images seems to be corrupted.
-            printf("Image data localized at 0x%.8x (begin), 0x%.8x (end)\n", data_address, image_end);
             if(*value == 0xCD) {
                 printf("=================\nWOOOOOPS LOOKS LIKE YOU ARE FUCKING WRONG\n==============\n");
             }
+            while(*value == 0xCD) {
+                ++value;
+                data_address++;
+            }
+
+            uint32_t image_end = data_address + (bitmap->width * bitmap->height);
+            printf("Image data localized at 0x%.8x (begin), 0x%.8x (end)\n", data_address, image_end);
 
             // if i care to write the bitmap, for each bitmap found, write it to disk
             if(WRITE_BITMAP) {
+                // clankkka wrote this
                 uint32_t compressed_size = info1->width*info1->height;   // Use this instead of width*height
                 uint8_t *image_data = getPtrFromOgAddress(data_address);
 
@@ -482,6 +551,7 @@ int main(int argc, char* argv[]) {
 
                 // Remove temporary raw file
                 remove(dds_name);
+                // clankkka over
             }
         default:
             break;
