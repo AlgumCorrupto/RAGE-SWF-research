@@ -3,8 +3,78 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <libgen.h>
+#include <string.h>
 
 #pragma pack(push, 1) // All packed struct, don't let compiler align
+
+
+#define WRITE_BITMAP 0
+
+
+// remove later
+typedef struct {
+    uint32_t dwSize;
+    uint32_t dwFlags;
+    uint32_t dwFourCC;
+    uint32_t dwRGBBitCount;
+    uint32_t dwRBitMask;
+    uint32_t dwGBitMask;
+    uint32_t dwBBitMask;
+    uint32_t dwABitMask;
+} DDS_PIXELFORMAT;
+
+typedef struct {
+    uint32_t dwSize;
+    uint32_t dwFlags;
+    uint32_t dwHeight;
+    uint32_t dwWidth;
+    uint32_t dwPitchOrLinearSize;
+    uint32_t dwDepth;
+    uint32_t dwMipMapCount;
+    uint32_t dwReserved1[11];
+
+    DDS_PIXELFORMAT ddspf;
+
+    uint32_t dwCaps;
+    uint32_t dwCaps2;
+    uint32_t dwCaps3;
+    uint32_t dwCaps4;
+    uint32_t dwReserved2;
+} DDS_HEADER;
+
+#define MAKEFOURCC(a,b,c,d) \
+    ((uint32_t)(a) | ((uint32_t)(b)<<8) | ((uint32_t)(c)<<16) | ((uint32_t)(d)<<24))
+
+void write_dds_header(FILE *f, uint32_t width, uint32_t height, uint32_t linearSize)
+{
+    fwrite("DDS ", 1, 4, f);
+
+    DDS_HEADER h;
+    memset(&h, 0, sizeof(h));
+
+    h.dwSize = 124;
+    h.dwFlags =
+        0x1 |      // DDSD_CAPS
+        0x2 |      // DDSD_HEIGHT
+        0x4 |      // DDSD_WIDTH
+        0x80000 |  // DDSD_LINEARSIZE
+        0x1000;    // DDSD_PIXELFORMAT
+
+    h.dwHeight = height;
+    h.dwWidth = width;
+    h.dwPitchOrLinearSize = linearSize;
+
+    h.ddspf.dwSize = 32;
+    h.ddspf.dwFlags = 0x4; // DDPF_FOURCC
+    h.ddspf.dwFourCC = MAKEFOURCC('D','X','T','5');
+
+    h.dwCaps = 0x1000; // DDSCAPS_TEXTURE
+
+    fwrite(&h, sizeof(h), 1, f);
+}
+// remove later
 
 // not sure what this struct
 typedef struct {
@@ -67,6 +137,7 @@ typedef struct {
 // taken from theikus go implementation 
 typedef struct {
     uint32_t unk1[2];
+
     uint16_t width; 
     uint16_t height; 
     uint32_t data_size; // W x H x 4
@@ -104,7 +175,6 @@ typedef struct {
     // in pixels
     uint16_t width; 
     uint16_t height;
-
     float inv_width;  // 1/width
     float inv_height; // 1/height
 } swfBITMAP;
@@ -269,8 +339,7 @@ void list_frames(swfFRAME* frame, uint32_t count) {
     }
 }
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     void *pckData;
     PckFileHeader fileHeader;
     char *fileInputPath = argv[1];
@@ -310,6 +379,26 @@ int main(int argc, char* argv[])
     printf("Reading background frames...\n");
     list_frames(file_frame, si->frame_count);
 
+    char outdir[1024];
+    char input_copy[1024];
+
+    // if i care to write the bitmap,
+    // i create a folder
+    if(WRITE_BITMAP) {
+    
+        strncpy(input_copy, fileInputPath, sizeof(input_copy));
+        input_copy[sizeof(input_copy) - 1] = '\0';
+    
+        // Remove extension
+        char *dot = strrchr(input_copy, '.');
+        if (dot)
+            *dot = '\0';
+    
+        snprintf(outdir, sizeof(outdir), "%s", input_copy);
+    
+        mkdir(outdir, 0755);
+    }
+
     printf("Where the object list is located: 0x%.8x\n", si->pointToObjectPtrList);
     // Object list
     uint32_t *ol = getPtrFromOgAddress(si->pointToObjectPtrList);
@@ -343,15 +432,56 @@ int main(int argc, char* argv[])
             bmpInfo3* info3 = getPtrFromOgAddress(info2->ptr_to_info3);
             uint32_t end = info2->ptr_to_info3 + sizeof(bmpInfo3);
             //printf("%.8x end", end)
-            // getting the closest biggest address multiple of 0x40
+            // getting the closest biggest address multiple of 0x80
             uint32_t multiple = 0x80;
             uint32_t offset = (multiple - (end % multiple)) % multiple;
             uint32_t data_address = offset + end;
             uint8_t* value = getPtrFromOgAddress(data_address);
-            uint32_t image_end = data_address + (info1->width * info1->height);
+            uint32_t image_end = data_address + (bitmap->width * bitmap->height);
+            // I'm not sure what is going on but few images seems to be corrupted.
             printf("Image data localized at 0x%.8x (begin), 0x%.8x (end)\n", data_address, image_end);
             if(*value == 0xCD) {
                 printf("=================\nWOOOOOPS LOOKS LIKE YOU ARE FUCKING WRONG\n==============\n");
+            }
+
+            // if i care to write the bitmap, for each bitmap found, write it to disk
+            if(WRITE_BITMAP) {
+                uint32_t compressed_size = info1->width*info1->height;   // Use this instead of width*height
+                uint8_t *image_data = getPtrFromOgAddress(data_address);
+
+                // Write raw DXT5 blocks
+                char raw_name[1024];
+                snprintf(raw_name, sizeof(raw_name), "%s/%d.raw", outdir, i);
+
+                char dds_name[1024];
+                snprintf(dds_name, sizeof(dds_name), "%s/%d.dds", outdir, i);
+
+                FILE *dds = fopen(dds_name, "wb");
+
+                write_dds_header(dds,
+                                 bitmap->width,
+                                 bitmap->height,
+                                 compressed_size);
+            
+                fwrite(image_data, 1, compressed_size, dds);
+                fclose(dds);
+
+                // Convert to PNG
+                char png_name[1024];
+                snprintf(png_name, sizeof(png_name), "%s/%d.png", outdir, i);
+
+                char command[4096];
+                snprintf(command, sizeof(command),
+                    "ffmpeg -loglevel error -y "
+                    "-i \"%s\" "
+                    "\"%s\"",
+                    dds_name,
+                    png_name);
+
+                system(command);
+
+                // Remove temporary raw file
+                remove(dds_name);
             }
         default:
             break;
