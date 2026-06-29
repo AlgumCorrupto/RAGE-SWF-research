@@ -88,7 +88,7 @@ void write_dds_header(FILE *f, uint32_t width, uint32_t height, uint32_t linearS
 
     fwrite(&h, sizeof(h), 1, f);
 }
-// clankkka wrote this
+// clankkka over
 
 // not sure what this struct
 typedef struct {
@@ -125,13 +125,6 @@ typedef struct {
     uint32_t frame_count; // quantity of frames??? who fucking knows
 } swfFILE;
 
-// this is probably just a swf frame??
-typedef struct {
-    uint32_t backgroundRGBA; // Probably background in RGBA?
-    uint32_t pointsToClass_swfACTION_DoAction; // initial script executed by flash usually at 0x40 but not always, controllers.xbck at 0x2564
-    char padding[8]; // usual 0xcd padding
-} PckSwfBackgroundInfo;
-
 typedef struct {
     uint32_t bytecode; 
 } swfDoAction;
@@ -156,16 +149,15 @@ typedef struct {
     uint16_t height; 
     uint32_t data_size; // W x H x 4
     uint32_t unk2;
-    uint32_t current_node_ptr;
+    uint32_t image_current_node_ptr;
     uint32_t unk3;
     uint8_t pad1[4];
 } bmpInfo1;
 
-
 typedef struct {
     uint32_t unk1; // always 1???
-    uint32_t next_image_ptr; //????? it points to another linked list node
-    uint32_t ptr_to_texture;
+    uint32_t next_image_ptr; //????? it points to another another image, like a linked list
+    uint32_t ptr_to_texture; // pointer to the actual texture data
     uint16_t maybe_bits;
     uint16_t width;
     uint16_t height;
@@ -182,7 +174,7 @@ typedef struct {
     // padded until address is multiple of 0x40, not 44
     //char pad1[44];
     //void* data;
-} bmpInfo3;
+} bmpTexture;
 
 typedef struct {
     uint32_t ptr_to_info1; // pointer to something
@@ -203,19 +195,19 @@ typedef struct {
 
 // i should have used C++ class inheritance
 typedef enum {
-    END = 0,
-    FONT,
-    COLOR,
-    YOFFSET,
-    XOFFSET,
-    GLYPHENTRY
+    TR_END = 0,
+    TR_FONT,
+    TR_COLOR,
+    TR_YOFFSET,
+    TR_XOFFSET,
+    TR_GLYPHENTRY
 } TextRecord_Types;
 
 typedef struct {
     uint16_t type; // value: 1
     uint16_t font_id; // object id of the font
     uint16_t font_size;
-} TextRecord_FontConfig; // case 1
+} TextRecord_FontConfig;
 typedef struct {
     uint16_t type; // value: 2
     uint32_t color_rgba;
@@ -231,15 +223,25 @@ typedef struct {
 } GlyphEntry;
 
 typedef struct {
-    uint16_t type; // value: 4
+    uint16_t type; // value: 5
     uint16_t glyph_count;
-    GlyphEntry* entries;
+    //GlyphEntry* entries;
+    // from now on there's a list of glyph entries.
 } TextRecord_GlyphArray; // case 5
 
 typedef struct {
     swfMATRIX matrix;
     uint32_t text_records_ptr;
 } swfTEXT;
+
+typedef struct {
+    uint16_t entry_count;
+    uint16_t pad1; // 0xcdcd
+    uint32_t ptr1; // array of pointers that cant be found in the file for some reason
+    uint32_t character_array; // pointer to an array containing 16 bit characters apparently, 
+    uint32_t ptr2; // i suppose its another array, but not sure of what, sometimes is null.
+    // both have the same quantity of entries from the entry_count. 
+}swfFONT ;
 
 typedef struct {
     uint8_t pad1[3]; // 0xCDCDCD
@@ -258,18 +260,14 @@ typedef struct {
     uint32_t vtable;
     uint8_t cmd_type;
     uint8_t useless[3];
-    uint32_t next_CMD;
-
+    uint32_t next_CMD; // next command in the linked list
 } swfCMDHeader;
 
 typedef struct {
     uint16_t unk1;
     uint16_t character_id;
     // from now on i'm not sure WHAT THE FUCK this data means
-    uint32_t ptr1; // has some bullshit in the beginning
-                   // then some action script bytecode
-
-
+    uint32_t ptr1; 
 } swfCMD_placeObject2;
 
 
@@ -279,11 +277,7 @@ typedef struct {
     uint32_t ptr1; // has some bullshit in the beginning
                         // then some action script bytecode
 
-    // i DONT KNOW
-    //uint32_t null_or_ptr1;
-    //uint32_t unk3; 
-    //uint32_t unk4;
-    //uint32_t ptr2ptr2bytecode; // unknown pointer for now
+    // Not sure from now on
 } swfCMD_clipEvent;
 
 // fillstyle commands sheet:
@@ -292,39 +286,39 @@ typedef struct {
 // 2: fill
 // 3:
 // 4: style change (color or texture)
-typedef enum {
-    END = 0,
-    DRAW_STROKES,
-    DRAW_FILL,
-    SKIPPED,
-    COLOR_CHANGE,
-} swfSHAPE_commands;
-
-typedef enum {
-    SOLID_COLOR = 0,
-    LINEAR_GRADIENT = 0x10,
-    RADIAL_GRADIENT = 0x12,
-    // it means bitmap image
-    // but i'm not sure what is the variation
-    BITMAP_IMAGE0 = 0x40,
-    BITMAP_IMAGE1 = 0x41,
-    BITMAP_IMAGE2 = 0x42,
-    BITMAP_IMAGE3 = 0x43,
-} FillType;
-
-typedef struct {
-    uint8_t fill_type; // from the FillType enum
-    char tak_magic[3]; // for some reason there's a random ascii sequence 'tak'
-    uint32_t color_data; // rgba
-    float uv_matrix[4]; // gradient/texture transform
-    float translation[2];
-} FillCommand;
-
-typedef struct {
-    uint32_t style_data;
-    uint32_t linestyle_array; // maybe?
-    uint32_t style_commands;
-} swfSHAPE;
+//typedef enum {
+//    END = 0,
+//    DRAW_STROKES,
+//    DRAW_FILL,
+//    SKIPPED,
+//    COLOR_CHANGE,
+//} swfSHAPE_commands;
+//
+//typedef enum {
+//    SOLID_COLOR = 0,
+//    LINEAR_GRADIENT = 0x10,
+//    RADIAL_GRADIENT = 0x12,
+//    // it means bitmap image
+//    // but i'm not sure what is the variation
+//    BITMAP_IMAGE0 = 0x40,
+//    BITMAP_IMAGE1 = 0x41,
+//    BITMAP_IMAGE2 = 0x42,
+//    BITMAP_IMAGE3 = 0x43,
+//} FillType;
+//
+//typedef struct {
+//    uint8_t fill_type; // from the FillType enum
+//    char tak_magic[3]; // for some reason there's a random ascii sequence 'tak'
+//    uint32_t color_data; // rgba
+//    float uv_matrix[4]; // gradient/texture transform
+//    float translation[2];
+//} FillCommand;
+//
+//typedef struct {
+//    uint32_t style_data;
+//    uint32_t linestyle_array; // maybe?
+//    uint32_t style_commands;
+//} swfSHAPE;
 
 #pragma pack(pop) // End packed struct
 
@@ -363,6 +357,7 @@ uint32_t getRelAddrFromOgAddress(uint32_t ogAddr)
     return ogAddr - savedOgBaseAddress;
 }
 
+// useless function
 uint32_t getAbsoluteAddrFromOgAddress(uint32_t base, uint32_t ogAddr) {
     uint32_t relative = getRelAddrFromOgAddress(ogAddr);
     return base + relative;
@@ -442,22 +437,23 @@ int main(int argc, char* argv[]) {
 
     // if i care to write the bitmap,
     // i create a folder
-    if(WRITE_BITMAP) {
-        // clankkka wrote this
-        strncpy(input_copy, fileInputPath, sizeof(input_copy));
-        input_copy[sizeof(input_copy) - 1] = '\0';
+    // clankkka wrote this
+    strncpy(input_copy, fileInputPath, sizeof(input_copy));
+    input_copy[sizeof(input_copy) - 1] = '\0';
     
-        // Remove extension
-        char *dot = strrchr(input_copy, '.');
-        if (dot)
-            *dot = '\0';
+    // Remove extension
+    char *dot = strrchr(input_copy, '.');
+    if (dot)
+        *dot = '\0';
     
-        snprintf(outdir, sizeof(outdir), "%s", input_copy);
+    snprintf(outdir, sizeof(outdir), "%s", input_copy);
     
-        mkdir(outdir, 0755);
-        // clankkka over
-    }
+    mkdir(outdir, 0755);
+    // clankkka over
 
+    char txt_name[256];
+    sprintf(txt_name, "./%s/strings.txt", outdir);
+    FILE* txt_file = fopen(txt_name, "w");
     printf("Where the object list is located: 0x%.8x\n", si->pointToObjectPtrList);
     // Object list
     uint32_t *ol = getPtrFromOgAddress(si->pointToObjectPtrList);
@@ -489,11 +485,11 @@ int main(int argc, char* argv[]) {
             printf("w: %d, h: %d\n", bitmap->width, bitmap->height);
             printf("info 1... 0x%.8x\n", bitmap->ptr_to_info1);
             bmpInfo1* info1 = getPtrFromOgAddress(bitmap->ptr_to_info1);
-            printf("info 2... 0x%.8x\n", info1->current_node_ptr);
-            BitmapLinkedListNode* info2 = getPtrFromOgAddress(info1->current_node_ptr);
+            printf("info 2... 0x%.8x\n", info1->image_current_node_ptr);
+            BitmapLinkedListNode* info2 = getPtrFromOgAddress(info1->image_current_node_ptr);
             printf("info 3... 0x%.8x\n", info2->ptr_to_texture);
-            bmpInfo3* info3 = getPtrFromOgAddress(info2->ptr_to_texture);
-            uint32_t end = info2->ptr_to_texture + sizeof(bmpInfo3);
+            bmpTexture* info3 = getPtrFromOgAddress(info2->ptr_to_texture);
+            uint32_t end = info2->ptr_to_texture + sizeof(bmpTexture);
             //printf("%.8x end", end)
             // getting the closest biggest address multiple of 0x80
             uint32_t multiple = 0x80;
@@ -553,10 +549,78 @@ int main(int argc, char* argv[]) {
                 remove(dds_name);
                 // clankkka over
             }
+
+            break;
+            case 5: //swfFONT
+                break;
+            case 6: //swfTEXT
+                if(!PRINT_TEXT) break;
+                swfTEXT* text_obj = (swfTEXT*)(oti + 1);
+                printf("text record at %.8x\n", text_obj->text_records_ptr);
+
+                uint16_t* text_record_type = getPtrFromOgAddress(text_obj->text_records_ptr);
+                uint8_t ended = 0;
+
+                // if you not sure what is the deal with this fucked up looking expressions,
+                // its just pointer math.
+                // https://youtu.be/95M6V3mZgrI?si=JDwkVJiriQ9Pv6VY 
+                swfFONT* current_font = 0;
+
+                while (!ended) {
+                    switch (*text_record_type) {
+                    case TR_END:
+                        /* code */
+                        //printf("text record ended\n");
+                        ended = 1;
+                        break;
+                    case TR_COLOR:
+                        //printf("text color\n");
+                        text_record_type = (uint16_t*)(((TextRecord_Color*)text_record_type) + 1);
+                        break;
+                    case TR_FONT:
+                        TextRecord_FontConfig* font = (TextRecord_FontConfig*)text_record_type;
+                        uint32_t font_address = si->pointToObjectPtrList + sizeof(uint32_t) * font->font_id;
+                        uint32_t* actual_pointer_obj =  (uint32_t*)getPtrFromOgAddress(font_address);
+                        current_font = (swfFONT*)((PckSwfObjectTypeInfo*)(getPtrFromOgAddress(*actual_pointer_obj)) + 1);
+
+                        //printf("text font\n");
+                        //printf("Changing to font %d (0x%.8x)\n", font->font_id, *actual_pointer_obj);
+
+                        text_record_type = (uint16_t*)(((TextRecord_FontConfig*)text_record_type) + 1);
+                        break;
+                    case TR_XOFFSET:
+                    case TR_YOFFSET:
+                        //printf("text offset\n");
+                        text_record_type = (uint16_t*)(((TextRecord_Offset*)text_record_type) + 1);
+                        break;
+                    case TR_GLYPHENTRY: // i'm caring about displaying the text
+                        TextRecord_GlyphArray* glyph_array = (TextRecord_GlyphArray*)text_record_type;
+                        GlyphEntry* entry = (GlyphEntry*)(glyph_array + 1);
+                        uint16_t* characters = getPtrFromOgAddress(current_font->character_array);
+                        //printf("text glyph\n");
+                        //printf("font characters at 0x%.8x\n", current_font->character_array);
+                        //printf("printing the text...\n");
+                        for(size_t f_i = 0; f_i < glyph_array->glyph_count; f_i++) {
+                            fprintf(txt_file, "%c", characters[entry->glyph_index]);
+                            ++entry;
+                        }
+                        fprintf(txt_file, "\n");
+                        text_record_type = (uint16_t*)((uint8_t*)(((TextRecord_GlyphArray*)text_record_type) + 1) + sizeof(GlyphEntry) * glyph_array->glyph_count);
+                        break;
+                    default:
+                        printf("unknown text record\n");
+                        exit(1);
+                        break;
+                }
+            }
+
+            break;
+
         default:
             break;
         }
     }
 
+    fclose(txt_file);
     free(pckData);
 }
