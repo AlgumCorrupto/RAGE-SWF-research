@@ -19,10 +19,9 @@
 #define PRINT_BITMAP 1
 #define PRINT_TEXT 1
 #define PRINT_FONT 1
-// all of these to the top were reversed in some way ,
-// bottom ones still a work in progress for the basic
-// swf object types
 #define PRINT_SHAPE 1
+// all of these to the top were partially reversed in some way,
+// bottom ones still a work in progress
 #define PRINT_EDITTEXT 1
 
 // write bitmap to files, must have PRINT_BITMAP on
@@ -226,8 +225,8 @@ typedef struct {
 typedef struct {
     uint16_t type; // value: 5
     uint16_t glyph_count;
-    //GlyphEntry* entries;
     // from now on there's a list of glyph entries.
+    GlyphEntry entries[];
 } TextRecord_GlyphArray; // case 5
 
 typedef struct {
@@ -285,41 +284,70 @@ typedef struct {
 // 0: end of commands
 // 1: draw lines/strokes
 // 2: fill
-// 3:
-// 4: style change (color or texture)
-//typedef enum {
-//    END = 0,
-//    DRAW_STROKES,
-//    DRAW_FILL,
-//    SKIPPED,
-//    COLOR_CHANGE,
-//} swfSHAPE_commands;
-//
-//typedef enum {
-//    SOLID_COLOR = 0,
-//    LINEAR_GRADIENT = 0x10,
-//    RADIAL_GRADIENT = 0x12,
-//    // it means bitmap image
-//    // but i'm not sure what is the variation
-//    BITMAP_IMAGE0 = 0x40,
-//    BITMAP_IMAGE1 = 0x41,
-//    BITMAP_IMAGE2 = 0x42,
-//    BITMAP_IMAGE3 = 0x43,
-//} FillType;
-//
-//typedef struct {
-//    uint8_t fill_type; // from the FillType enum
-//    char tak_magic[3]; // for some reason there's a random ascii sequence 'tak'
-//    uint32_t color_data; // rgba
-//    float uv_matrix[4]; // gradient/texture transform
-//    float translation[2];
-//} FillCommand;
-//
-//typedef struct {
-//    uint32_t style_data;
-//    uint32_t linestyle_array; // maybe?
-//    uint32_t style_commands;
-//} swfSHAPE;
+// 3: unknown
+// 4: fillstyle change (color or texture)
+// 5: strokestyle change
+typedef enum {
+    SH_END = 0,
+    SH_DRAW_STROKES,
+    SH_DRAW_FILL,
+    SH_UNKNOWN, // not mentioned in the decompiled code
+    SH_FILLSTYLE_CHANGE,
+    SH_STROKESTYLE_CHANGE,
+} swfSHAPE_opcodes;
+
+typedef struct {
+    uint16_t x;
+    uint16_t y;
+} swfPoint;
+
+typedef struct {
+    swfMATRIX gradient_matrix; // some matrix of floats
+    uint16_t stops_count; // quantity of colors in the gradients
+    char pad1[0x2];
+    uint32_t ratio_ptr; // pointer to an array of uint8_t
+    uint32_t colors_ptr;// pointer to a rgba array
+} swfGRADIENT;
+
+typedef struct {
+    uint8_t unk1; // no correlation to anything, maybe flags? not sure
+    char tak_marker[3]; // for some reason there's a random ascii sequence 'tak'
+    uint32_t color_data; // rgba
+    swfMATRIX bitmap_matrix; // it's an identity matrix unless bitmap pointer points to something.
+    uint32_t bitmap_pointer; // if has a bitmap, this is not null
+    uint32_t gradient_pointer; 
+} swfSHAPE_FillStyle_data;
+
+typedef struct {
+    uint16_t opcode; // 4
+    uint16_t style_index;
+} swfSHAPE_FillStyle;
+
+typedef struct {
+    // opcode 1 for draw outline
+    // opcode 2 for draw filled
+    uint16_t opcode;
+    uint16_t vertex_count;
+    // from now on an array of points.
+    swfPoint points[];
+} swfSHAPE_Polygon;
+
+typedef struct {
+    uint16_t unk1;
+    uint16_t unk2;
+    RGBAcolor color;
+} swfSHAPE_StrokeStyle_data;
+
+typedef struct {
+    uint16_t opcode; // 5
+    uint16_t style_index;
+} swfSHAPE_StrokeStyle;
+
+typedef struct {
+    uint32_t fill_style_table;
+    uint32_t stroke_style_table;
+    uint32_t display_list_ptr;
+} swfSHAPE;
 
 #pragma pack(pop) // End packed struct
 
@@ -471,6 +499,59 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         switch (oti->objectType){
+        case 1: // swfSHAPE
+            if(!PRINT_SHAPE) break;
+
+            swfSHAPE* shape = (swfSHAPE*)(oti + 1);
+            printf("Display list localized at 0x%.8x (0x%.8x)\n", shape->display_list_ptr, getRelAddrFromOgAddress(shape->display_list_ptr));
+            printf("Display list data localized at 0x%.8x (0x%.8x)\n", shape->fill_style_table, getRelAddrFromOgAddress(shape->fill_style_table));
+            uint8_t* value_pointed = (uint8_t*)getPtrFromOgAddress(shape->stroke_style_table); 
+            uint16_t* opcode = (uint16_t*) getPtrFromOgAddress(shape->display_list_ptr);
+            uint8_t ended_s = 0;
+            while(!ended_s) {
+                printf("opcode %d\n", *opcode);
+                switch(*opcode) {
+                case SH_END:
+                    ended_s = 1;
+                    break;
+                case SH_DRAW_STROKES:
+                case SH_DRAW_FILL:
+                    swfSHAPE_Polygon* poly =  (swfSHAPE_Polygon*)opcode;
+                    //printf("has %d points\n", poly->vertex_count);
+                    opcode = (uint16_t *)&poly->points[poly->vertex_count];
+                    break;
+                //case 3 is is never processed or mentioned in the decompiled code as far as i'm concerned
+                case SH_FILLSTYLE_CHANGE: 
+                    swfSHAPE_FillStyle* fillstyle = (swfSHAPE_FillStyle*)opcode;
+                    //printf("fillstyle index is %d\n", fillstyle->style_index);
+                    swfSHAPE_FillStyle_data* frecord = (swfSHAPE_FillStyle_data*)getPtrFromOgAddress(
+                        shape->fill_style_table + sizeof(swfSHAPE_FillStyle_data) * (fillstyle->style_index-1)
+                    );
+                    //if(record->bitmap_pointer != 0) {
+                    //    printf("BITMAP\nthe bitmap pointer points to to 0x%.8x (0x%.8x)\n", record->bitmap_pointer, getRelAddrFromOgAddress(record->bitmap_pointer));
+                    //}
+                    //if(memcmp(record->tak_marker, "tak", 3)) {
+                    //    printf("=============\nTHIS ONE DOES NOT HAVE 'tak'\nvalue: %.2x %.2x %.2x\n", record->tak_marker[0], record->tak_marker[1], record->tak_marker[2]);
+                    //}
+                    //if(record->gradient_pointer != 0) {
+                    //    printf("GRADIENT\nthe gradient pointer points to 0x%.8x (0x%.8x)\n", record->gradient_pointer, getRelAddrFromOgAddress(record->gradient_pointer));
+                    //}
+                    opcode = (uint16_t*)(((swfSHAPE_FillStyle*) opcode) + 1);
+                    break;
+                case SH_STROKESTYLE_CHANGE:
+                    swfSHAPE_StrokeStyle* strokestyle = (swfSHAPE_StrokeStyle*)opcode;
+                    swfSHAPE_StrokeStyle_data* srecord = (swfSHAPE_StrokeStyle_data*)getPtrFromOgAddress(
+                        shape->stroke_style_table + sizeof(swfSHAPE_StrokeStyle_data) * (strokestyle->style_index - 1)
+                    ); 
+                    printf("style index stored is  %d\n", strokestyle->style_index);
+                    opcode = (uint16_t*)(((swfSHAPE_StrokeStyle*) opcode) + 1);
+                    break;
+                default:
+                    printf("unknown\n");
+                    ended_s = 1;
+                }
+            }
+            break;
         case 2: // swfSPRITE
             if(!PRINT_SPRITE) break;
 
@@ -606,7 +687,7 @@ int main(int argc, char* argv[]) {
                             ++entry;
                         }
                         fprintf(txt_file, "\n");
-                        text_record_type = (uint16_t*)((uint8_t*)(((TextRecord_GlyphArray*)text_record_type) + 1) + sizeof(GlyphEntry) * glyph_array->glyph_count);
+                        text_record_type = (uint16_t*)&glyph_array->entries[glyph_array->glyph_count];
                         break;
                     default:
                         printf("unknown text record\n");
