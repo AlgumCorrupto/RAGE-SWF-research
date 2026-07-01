@@ -15,17 +15,19 @@
 // capiche?
 
 // printing swfOBJECTS config
-#define PRINT_SPRITE 1
-#define PRINT_BITMAP 1
+#define PRINT_SPRITE 0
+#define PRINT_BITMAP 0
 #define PRINT_TEXT 1
-#define PRINT_FONT 1
 #define PRINT_SHAPE 1
+#define PRINT_EDITTEXT 1
 // all of these to the top were partially reversed in some way,
 // bottom ones still a work in progress
-#define PRINT_EDITTEXT 1
+#define PRINT_BUTTON 1
+#define PRINT_FONT 0
 
 // write bitmap to files, must have PRINT_BITMAP on
 #define WRITE_BITMAP 1
+#define WRITE_TEXT 1
 
 // clankkka wrote this
 typedef struct {
@@ -171,8 +173,8 @@ typedef struct {
     uint32_t unk4;
     uint32_t unk5;
     uint32_t unk6;
-    // padded until address is multiple of 0x40, not 44
-    //char pad1[44];
+    // padded until address is multiple of 0x40
+    //char pad1[];
     //void* data;
 } bmpTexture;
 
@@ -186,8 +188,8 @@ typedef struct {
 } swfBITMAP;
 
 typedef struct {
-    uint8_t r, g, b, a;
-} RGBAcolor;
+    uint8_t b, g, r, a;
+} ARGBcolor;
 
 typedef struct {
     float ax, ay, bx, by, cx, cy;
@@ -210,7 +212,7 @@ typedef struct {
 } TextRecord_FontConfig;
 typedef struct {
     uint16_t type; // value: 2
-    uint32_t color_rgba;
+    ARGBcolor color_rgba;
 } TextRecord_Color;
 typedef struct {
     uint16_t type; // value: 3 or 4
@@ -252,7 +254,7 @@ typedef struct {
 } swfSPRITE;
 
 typedef struct {
-    uint32_t null0;
+    uint32_t null0; // always null as far as i'm aware of
     uint32_t commands; // pointer to swfCMDs
 } swfFRAME;
 
@@ -264,6 +266,7 @@ typedef struct {
 } swfCMDHeader;
 
 typedef struct {
+    // insert swfCMD_Header here
     uint16_t unk1;
     uint16_t character_id;
     // from now on i'm not sure WHAT THE FUCK this data means
@@ -272,10 +275,11 @@ typedef struct {
 
 
 typedef struct {
+    // insert swfCMD_Header here
     uint16_t unk1;
     uint16_t character_id;
-    uint32_t ptr1; // has some bullshit in the beginning
-                        // then some action script bytecode
+    uint32_t ptr1;  // has some bullshit in the beginning
+                    // then some action script bytecode
 
     // Not sure from now on
 } swfCMD_clipEvent;
@@ -312,7 +316,7 @@ typedef struct {
 typedef struct {
     uint8_t unk1; // no correlation to anything, maybe flags? not sure
     char tak_marker[3]; // for some reason there's a random ascii sequence 'tak'
-    uint32_t color_data; // rgba
+    ARGBcolor color_data; // rgba
     swfMATRIX bitmap_matrix; // it's an identity matrix unless bitmap pointer points to something.
     uint32_t bitmap_pointer; // if has a bitmap, this is not null
     uint32_t gradient_pointer; 
@@ -335,7 +339,7 @@ typedef struct {
 typedef struct {
     uint16_t unk1;
     uint16_t unk2;
-    RGBAcolor color;
+    ARGBcolor color;
 } swfSHAPE_StrokeStyle_data;
 
 typedef struct {
@@ -348,6 +352,43 @@ typedef struct {
     uint32_t stroke_style_table;
     uint32_t display_list_ptr;
 } swfSHAPE;
+
+typedef enum {
+    AL_LEFT = 0,
+    AL_RIGHT,
+    AL_CENTER,
+    AL_JUSTIFY,
+} swfEDITTEXT_alignment;
+
+typedef struct {
+    // zero idea if this is right
+    uint32_t initial_text;                
+    uint32_t lookup_key;
+
+    uint16_t has_initial_text;
+    int16_t leading;
+
+    // confident on this
+    ARGBcolor color;
+
+    // also confident on this
+    uint16_t font_index;
+    uint16_t font_size;
+
+    // also confident
+    int32_t width;
+    int32_t height;
+
+    // maybe?
+    int32_t xoffset;
+    int32_t yoffset;
+
+    // 0 = left
+    // 1 = right
+    // 2 = center
+    // 3 = justify
+    uint8_t alignment;
+} swfEDITTEXT;
 
 #pragma pack(pop) // End packed struct
 
@@ -416,6 +457,12 @@ void list_frames(swfFRAME* frame, uint32_t count) {
         printf("\n");
         ++frame;
     }
+}
+
+void print_color(ARGBcolor c) {
+    printf("\x1b[38;2;%d;%d;%dm", c.r, c.g, c.b);
+    printf("Has color #%.2X%.2X%.2X%.2X", c.r, c.g, c.b, c.a);
+    printf("\x1b[0m\n");
 }
 
 int main(int argc, char* argv[]) {
@@ -498,7 +545,7 @@ int main(int argc, char* argv[]) {
             printf("Invalid object type index %d at %d\n", otIndex, i);
             return 1;
         }
-        switch (oti->objectType){
+        switch (oti->objectType) {
         case 1: // swfSHAPE
             if(!PRINT_SHAPE) break;
 
@@ -509,27 +556,28 @@ int main(int argc, char* argv[]) {
             uint16_t* opcode = (uint16_t*) getPtrFromOgAddress(shape->display_list_ptr);
             uint8_t ended_s = 0;
             while(!ended_s) {
-                printf("opcode %d\n", *opcode);
                 switch(*opcode) {
-                case SH_END:
+                case SH_END: // 0
                     ended_s = 1;
                     break;
-                case SH_DRAW_STROKES:
-                case SH_DRAW_FILL:
+                case SH_DRAW_STROKES: // 1
+                case SH_DRAW_FILL: // 2
                     swfSHAPE_Polygon* poly =  (swfSHAPE_Polygon*)opcode;
                     //printf("has %d points\n", poly->vertex_count);
                     opcode = (uint16_t *)&poly->points[poly->vertex_count];
                     break;
                 //case 3 is is never processed or mentioned in the decompiled code as far as i'm concerned
-                case SH_FILLSTYLE_CHANGE: 
+                case SH_FILLSTYLE_CHANGE:  // 4
                     swfSHAPE_FillStyle* fillstyle = (swfSHAPE_FillStyle*)opcode;
                     //printf("fillstyle index is %d\n", fillstyle->style_index);
                     swfSHAPE_FillStyle_data* frecord = (swfSHAPE_FillStyle_data*)getPtrFromOgAddress(
                         shape->fill_style_table + sizeof(swfSHAPE_FillStyle_data) * (fillstyle->style_index-1)
                     );
-                    //if(record->bitmap_pointer != 0) {
-                    //    printf("BITMAP\nthe bitmap pointer points to to 0x%.8x (0x%.8x)\n", record->bitmap_pointer, getRelAddrFromOgAddress(record->bitmap_pointer));
-                    //}
+                    if(frecord->bitmap_pointer != 0) {
+                        printf("the bitmap pointer points to to 0x%.8x (0x%.8x)\n", frecord->bitmap_pointer, getRelAddrFromOgAddress(frecord->bitmap_pointer));
+                    } else {
+                        print_color(frecord->color_data);
+                    }
                     //if(memcmp(record->tak_marker, "tak", 3)) {
                     //    printf("=============\nTHIS ONE DOES NOT HAVE 'tak'\nvalue: %.2x %.2x %.2x\n", record->tak_marker[0], record->tak_marker[1], record->tak_marker[2]);
                     //}
@@ -538,7 +586,7 @@ int main(int argc, char* argv[]) {
                     //}
                     opcode = (uint16_t*)(((swfSHAPE_FillStyle*) opcode) + 1);
                     break;
-                case SH_STROKESTYLE_CHANGE:
+                case SH_STROKESTYLE_CHANGE: // 5
                     swfSHAPE_StrokeStyle* strokestyle = (swfSHAPE_StrokeStyle*)opcode;
                     swfSHAPE_StrokeStyle_data* srecord = (swfSHAPE_StrokeStyle_data*)getPtrFromOgAddress(
                         shape->stroke_style_table + sizeof(swfSHAPE_StrokeStyle_data) * (strokestyle->style_index - 1)
@@ -547,6 +595,7 @@ int main(int argc, char* argv[]) {
                     opcode = (uint16_t*)(((swfSHAPE_StrokeStyle*) opcode) + 1);
                     break;
                 default:
+                    printf("opcode %d\n", *opcode);
                     printf("unknown\n");
                     ended_s = 1;
                 }
@@ -579,6 +628,7 @@ int main(int argc, char* argv[]) {
             uint32_t data_address = offset + end;
             uint8_t* value = getPtrFromOgAddress(data_address);
             // I'm not sure what is going on but few images seems to be corrupted.
+            // maybe its the gpu swizzling that clankers have been talking about?
             if(*value == 0xCD) {
                 printf("=================\nWOOOOOPS LOOKS LIKE YOU ARE FUCKING WRONG\n==============\n");
             }
@@ -641,22 +691,22 @@ int main(int argc, char* argv[]) {
                 printf("text record at %.8x\n", text_obj->text_records_ptr);
 
                 uint16_t* text_record_type = getPtrFromOgAddress(text_obj->text_records_ptr);
-                uint8_t ended = 0;
+                uint8_t ended_t = 0;
 
                 // if you not sure what is the deal with this fucked up looking expressions,
                 // its just pointer math.
                 // https://youtu.be/95M6V3mZgrI?si=JDwkVJiriQ9Pv6VY 
                 swfFONT* current_font = 0;
 
-                while (!ended) {
+                while (!ended_t) {
                     switch (*text_record_type) {
                     case TR_END:
                         /* code */
-                        //printf("text record ended\n");
-                        ended = 1;
+                        ended_t = 1;
                         break;
                     case TR_COLOR:
-                        //printf("text color\n");
+                        TextRecord_Color* tr_color = (TextRecord_Color*)(text_record_type);
+                        print_color(tr_color->color_rgba);
                         text_record_type = (uint16_t*)(((TextRecord_Color*)text_record_type) + 1);
                         break;
                     case TR_FONT:
@@ -664,10 +714,6 @@ int main(int argc, char* argv[]) {
                         uint32_t font_address = si->pointToObjectPtrList + sizeof(uint32_t) * font->font_id;
                         uint32_t* actual_pointer_obj =  (uint32_t*)getPtrFromOgAddress(font_address);
                         current_font = (swfFONT*)((PckSwfObjectTypeInfo*)(getPtrFromOgAddress(*actual_pointer_obj)) + 1);
-
-                        //printf("text font\n");
-                        //printf("Changing to font %d (0x%.8x)\n", font->font_id, *actual_pointer_obj);
-
                         text_record_type = (uint16_t*)(((TextRecord_FontConfig*)text_record_type) + 1);
                         break;
                     case TR_XOFFSET:
@@ -682,21 +728,29 @@ int main(int argc, char* argv[]) {
                         //printf("text glyph\n");
                         //printf("font characters at 0x%.8x\n", current_font->character_array);
                         //printf("printing the text...\n");
-                        for(size_t f_i = 0; f_i < glyph_array->glyph_count; f_i++) {
-                            fprintf(txt_file, "%c", characters[entry->glyph_index]);
-                            ++entry;
+                        if(WRITE_TEXT) {
+                            for(size_t f_i = 0; f_i < glyph_array->glyph_count; f_i++) {
+                                fprintf(txt_file, "%c", characters[entry->glyph_index]);
+                                ++entry;
+                            }
+                            fprintf(txt_file, "\n");
                         }
-                        fprintf(txt_file, "\n");
+
                         text_record_type = (uint16_t*)&glyph_array->entries[glyph_array->glyph_count];
                         break;
                     default:
                         printf("unknown text record\n");
-                        exit(1);
+                        ended_t = 1;
                         break;
                 }
             }
             break;
+        case 7: //swfEDITTEXT
+            if(!PRINT_EDITTEXT) break;
 
+            swfEDITTEXT* editt = (swfEDITTEXT*)(oti + 1);
+            print_color(editt->color);
+            break;
         default:
             break;
         }
