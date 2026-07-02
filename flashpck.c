@@ -15,11 +15,11 @@
 // capiche?
 
 // printing swfOBJECTS config
-#define PRINT_SPRITE 0
+#define PRINT_SPRITE 1
 #define PRINT_BITMAP 0
-#define PRINT_TEXT 1
-#define PRINT_SHAPE 1
-#define PRINT_EDITTEXT 1
+#define PRINT_TEXT 0
+#define PRINT_SHAPE 0
+#define PRINT_EDITTEXT 0
 // all of these to the top were partially reversed in some way,
 // bottom ones still a work in progress
 #define PRINT_BUTTON 1
@@ -259,29 +259,42 @@ typedef struct {
 } swfFRAME;
 
 typedef struct {
+    // both of them are composed by fixed point 8.8 RGBA
+    ARGBcolor mult_term;
+    ARGBcolor add_term;
+} swfCXFORMWITHAPLHA;
+
+typedef struct {
     uint32_t vtable;
     uint8_t cmd_type;
-    uint8_t useless[3];
+    uint8_t flags; // bit 0 defines if it has scale, bit 1 if it has rotation
+    uint8_t useless[2];
     uint32_t next_CMD; // next command in the linked list
 } swfCMDHeader;
 
 typedef struct {
     // insert swfCMD_Header here
-    uint16_t unk1;
-    uint16_t character_id;
-    // from now on i'm not sure WHAT THE FUCK this data means
-    uint32_t ptr1; 
+    uint16_t depth; 
+    uint16_t character_id; // if character is 0xFFFF, that means a eaew character needs to be created
+    uint32_t packed_matrix_ptr; 
+    uint32_t color_xform_ptr;
 } swfCMD_placeObject2;
 
+typedef struct {
+    uint32_t unk1;
+    uint32_t action_list_ptr;
+} codeWrapper;
 
 typedef struct {
     // insert swfCMD_Header here
-    uint16_t unk1;
-    uint16_t character_id;
-    uint32_t ptr1;  // has some bullshit in the beginning
-                    // then some action script bytecode
-
-    // Not sure from now on
+    uint16_t depth; 
+    uint16_t character_id; // if character is 0xFFFF, that means a eaew character needs to be created
+    uint32_t packed_matrix_ptr; 
+    uint32_t color_xform_ptr;
+    uint32_t unk1;
+    uint32_t unk2;
+    uint32_t code_wrapper_ptr;
+    uint32_t name_ptr; // pointer to a standard ascii string that has the name of the movie clip
 } swfCMD_clipEvent;
 
 // fillstyle commands sheet:
@@ -433,6 +446,34 @@ uint32_t getAbsoluteAddrFromOgAddress(uint32_t base, uint32_t ogAddr) {
     return base + relative;
 }
 
+ARGBcolor add_color(ARGBcolor c1, ARGBcolor c2) {
+    return (ARGBcolor){
+        .a = c1.a + c2.a,
+        .b = c1.b + c2.b,
+        .g = c1.g + c2.g,
+        .r = c1.r + c2.r,
+    };
+}
+
+ARGBcolor mult_color(ARGBcolor c1, ARGBcolor c2) {
+    return (ARGBcolor){
+        .a = c1.a * c2.a,
+        .b = c1.b * c2.b,
+        .g = c1.g * c2.g,
+        .r = c1.r * c2.r,
+    };
+}
+
+ARGBcolor xform_color(ARGBcolor c, swfCXFORMWITHAPLHA x) {
+    return add_color(x.add_term, mult_color(c, x.mult_term));
+}
+
+void print_color(ARGBcolor c) {
+    printf("\x1b[38;2;%d;%d;%dm", c.r, c.g, c.b);
+    printf("#%.2X%.2X%.2X%.2X", c.r, c.g, c.b, c.a);
+    printf("\x1b[0m\n");
+}
+
 void list_frames(swfFRAME* frame, uint32_t count) {
     for(int f_i = 0; f_i < count; f_i++) {
         if(frame->commands == 0) continue; 
@@ -448,6 +489,28 @@ void list_frames(swfFRAME* frame, uint32_t count) {
         int count = 0;
         do {
             printf("swfCMD %d: 0x%.8x (0x%.8x), of type %d %s\n", count++, old, cmd_relative, cmd->cmd_type, swfCmdTypesString[cmd->cmd_type]);
+            switch(cmd->cmd_type) {
+                case 0:
+                    swfCMD_placeObject2* place_o = (swfCMD_placeObject2*)(cmd + 1);
+                    uint32_t* pointed = (uint32_t*)getPtrFromOgAddress(place_o->packed_matrix_ptr);
+                    printf("character: %d\n", place_o->character_id); // if character is 0xFFFF, that means a new character needs to be created
+                    //if(*pointed != 0) {
+                    //    printf("VALUE LIL WEIRD\n0x%.8x\n", *pointed);
+                    //}
+                    if(place_o->color_xform_ptr != 0) {
+                        swfCXFORMWITHAPLHA* xform = (swfCXFORMWITHAPLHA*)getPtrFromOgAddress(place_o->color_xform_ptr);
+                        print_color(add_color(xform->add_term, xform->mult_term));
+                    } 
+                    break;
+                case 1:
+                    swfCMD_clipEvent* clip_e = (swfCMD_clipEvent*)(cmd + 1);
+                    if(clip_e->name_ptr != 0 ) {
+                        char* name = (char*)getPtrFromOgAddress(clip_e->name_ptr); 
+                        printf("%s\n", name);
+                   }
+                default:
+                    break;
+            }
             if(cmd->next_CMD == 0) break;
             cmd_relative = getRelAddrFromOgAddress(cmd->next_CMD);
             old = cmd->next_CMD;
@@ -459,11 +522,6 @@ void list_frames(swfFRAME* frame, uint32_t count) {
     }
 }
 
-void print_color(ARGBcolor c) {
-    printf("\x1b[38;2;%d;%d;%dm", c.r, c.g, c.b);
-    printf("Has color #%.2X%.2X%.2X%.2X", c.r, c.g, c.b, c.a);
-    printf("\x1b[0m\n");
-}
 
 int main(int argc, char* argv[]) {
     void *pckData;
@@ -581,9 +639,14 @@ int main(int argc, char* argv[]) {
                     //if(memcmp(record->tak_marker, "tak", 3)) {
                     //    printf("=============\nTHIS ONE DOES NOT HAVE 'tak'\nvalue: %.2x %.2x %.2x\n", record->tak_marker[0], record->tak_marker[1], record->tak_marker[2]);
                     //}
-                    //if(record->gradient_pointer != 0) {
-                    //    printf("GRADIENT\nthe gradient pointer points to 0x%.8x (0x%.8x)\n", record->gradient_pointer, getRelAddrFromOgAddress(record->gradient_pointer));
-                    //}
+                    if(frecord->gradient_pointer != 0) {
+                        swfGRADIENT* gradient = (swfGRADIENT*)getPtrFromOgAddress(frecord->gradient_pointer);
+                        printf("printing gradients\n");
+                        for(int g_i = 0; g_i < gradient->stops_count; g_i++) {
+                            ARGBcolor* gcolor = (ARGBcolor*)getPtrFromOgAddress(gradient->colors_ptr + sizeof(ARGBcolor) * g_i);
+                            print_color(*gcolor);
+                        }
+                    }
                     opcode = (uint16_t*)(((swfSHAPE_FillStyle*) opcode) + 1);
                     break;
                 case SH_STROKESTYLE_CHANGE: // 5
