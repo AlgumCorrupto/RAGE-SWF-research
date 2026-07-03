@@ -17,6 +17,14 @@
 // i'm referring to its position in the swfOBJECTS array pointed by swfFILE.
 // capiche?
 
+// the interesting and painfull thing about the *ck files of this game is that
+// its literally a live dump of C++ objects, its not binary encoded data
+// that its parsed in some way. The game reads the contents as a whole
+// and just fixes the pointers that need to be fixed based on its base address
+// which is contained a tiny 0x10 bytes header at the start of the file.
+// this type of serialization is explained in this article
+// http://tomhulton.blogspot.com/2011/12/load-in-place-data-structures-and.html
+
 // printing swfOBJECTS config
 #define PRINT_SPRITE 1
 #define PRINT_BITMAP 0
@@ -121,6 +129,13 @@ typedef struct {
 
 // the "ROOT of everything in the file"
 // from this object you can get to anywere else
+// after the header and the 0x80 bytes padding
+// this is always the first structure that
+// appears in the xbox version 
+// after 0x80 bytes padding of the header
+// the first 0x8 bytes is skipped
+// then the contents of this structure layout is read
+// thiekus wrote it this way, i will refactor it later
 typedef struct {
     uint16_t unk1; // Selalu 1
     char padding1[2]; // 0xcdcd padding
@@ -639,7 +654,16 @@ void print_color(RGBAColor c) {
     printf("\x1b[0m\n");
 }
 
-
+// okay, if you are running this program on a file and
+// see the message "unknown opcode", that means this
+// avm1 instruction wasn't implemented, that's basically
+// my workflow, since i dont know if MC3 implements the 
+// whole set of AVM1 instruction, i had to implement them one by one
+// if that happens to you, go to the flash7 spec 
+// https://www.ics.agh.edu.pl/dydaktyka/mm/lato0405_inf_d/wyklady/w4/SWF7_specification.pdf
+// search for this opcode, and implement it.
+// you should add an entry in the AVM1opcodes enum 
+// and add a new case in parse_avm1 function
 void parse_avm1(AVM1Bytecode* code) {
     if(!PRINT_CODE) return;
     // skipping the first uint16    
@@ -793,71 +817,69 @@ void parse_avm1(AVM1Bytecode* code) {
                     uint8_t type = *p++;
                 
                     switch (type) {
-                    
-                case SP_CONSTANT8:
-                    printf("push constant8 \"%s\"\n",
-                           constants[*p]);
-                    p += 1;
-                    break;
-                    
-                case SP_CONSTANT16: {
-                    uint16_t idx = *(uint16_t *)p;
-                    printf("push constant16 \"%s\"\n",
-                           constants[idx]);
-                    p += 2;
-                    break;
-                }
+                    case SP_CONSTANT8:
+                        printf("push constant8 \"%s\"\n",
+                               constants[*p]);
+                        p += 1;
+                        break;
+                        
+                    case SP_CONSTANT16: {
+                        uint16_t idx = *(uint16_t *)p;
+                        printf("push constant16 \"%s\"\n",
+                               constants[idx]);
+                        p += 2;
+                        break;
+                    }
 
-                case SP_STRING:
-                    printf("push string \"%s\"\n", (char *)p);
-                    p += strlen((char *)p) + 1;
-                    break;
+                    case SP_STRING:
+                        printf("push string \"%s\"\n", (char *)p);
+                        p += strlen((char *)p) + 1;
+                        break;
 
-                case SP_FLOAT: {
-                    float value = *(float *)p;
-                    printf("push float %f\n", value);
-                    p += 4;
-                    break;
-                }
+                    case SP_FLOAT: {
+                        float value = *(float *)p;
+                        printf("push float %f\n", value);
+                        p += 4;
+                        break;
+                    }
 
-                case SP_DOUBLE: {
-                    double value = *(double *)p;
-                    printf("push double %f\n", value);
-                    p += 8;
-                    break;
-                }
+                    case SP_DOUBLE: {
+                        double value = *(double *)p;
+                        printf("push double %f\n", value);
+                        p += 8;
+                        break;
+                    }
 
-                case SP_INTEGER: {
-                    int32_t value = *(int32_t *)p;
-                    printf("push int %d\n", value);
-                    p += 4;
-                    break;
-                }
+                    case SP_INTEGER: {
+                        int32_t value = *(int32_t *)p;
+                        printf("push int %d\n", value);
+                        p += 4;
+                        break;
+                    }
 
-                case SP_BOOLEAN:
-                    printf("push bool %s\n", *p ? "true" : "false");
-                    p += 1;
-                    break;
+                    case SP_BOOLEAN:
+                        printf("push bool %s\n", *p ? "true" : "false");
+                        p += 1;
+                        break;
 
-                case SP_REGISTER:
-                    printf("push register %u\n", *p);
-                    p += 1;
-                    break;
+                    case SP_REGISTER:
+                        printf("push register %u\n", *p);
+                        p += 1;
+                        break;
 
-                case SP_NULL:
-                    printf("push null\n");
-                    break;
+                    case SP_NULL:
+                        printf("push null\n");
+                        break;
 
-                case SP_UNDEFINED:
-                    printf("push undefined\n");
-                    break;
+                    case SP_UNDEFINED:
+                        printf("push undefined\n");
+                        break;
                 
                     default:
                         printf("unknown push type 0x%u\n", type);
                         exit(1);
                     }
                 }
-            
                 opcode = end;
                 break;
             }
@@ -901,9 +923,9 @@ void list_frames(swfFRAME* frame, uint32_t count) {
         
         swfCMDHeader *cmd = getPtrFromOgAddress(frame->commands);
         uint32_t old = frame->commands;
-        int ccount = 0;
+        int count = 0;
         do {
-            printf("swfCMD %d: 0x%.8x (0x%.8x), of type %d %s\n", ccount++, old, cmd_relative, cmd->cmd_type, swfCmdTypesString[cmd->cmd_type]);
+            printf("swfCMD %d: 0x%.8x (0x%.8x), of type %d %s\n", count++, old, cmd_relative, cmd->cmd_type, swfCmdTypesString[cmd->cmd_type]);
             switch(cmd->cmd_type) {
                 case 0: // swfPlaceObject2
                     swfCMD_placeObject2* place_o = (swfCMD_placeObject2*)(cmd + 1);
@@ -912,7 +934,7 @@ void list_frames(swfFRAME* frame, uint32_t count) {
                     if(place_o->color_xform_ptr != 0) {
                         swfCXFORMWITHAPLHA* xform = (swfCXFORMWITHAPLHA*)getPtrFromOgAddress(place_o->color_xform_ptr);
                         RGBAColor white = {255,255,255,255};
-
+                                            
                         print_color(
                             xform_color(white, *xform)
                         );
