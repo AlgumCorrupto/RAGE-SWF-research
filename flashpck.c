@@ -629,6 +629,7 @@ RGBAColor mult_color(RGBAColor c1, RGBAColor c2) {
 }
 
 RGBAColor xform_color(RGBAColor c, swfCXFORMWITHAPLHA x) {
+
     return add_color(x.add_term, mult_color(c, x.mult_term));
 }
 
@@ -723,6 +724,7 @@ void parse_avm1(AVM1Bytecode* code) {
             case AC_NEW_OBJ: // opcode 0x40
                 opcode++;
                 printf("new object\n");
+                break;
             case AC_GET_MEMBER:
                 opcode++;
                 printf("get member\n");
@@ -899,9 +901,9 @@ void list_frames(swfFRAME* frame, uint32_t count) {
         
         swfCMDHeader *cmd = getPtrFromOgAddress(frame->commands);
         uint32_t old = frame->commands;
-        int count = 0;
+        int ccount = 0;
         do {
-            printf("swfCMD %d: 0x%.8x (0x%.8x), of type %d %s\n", count++, old, cmd_relative, cmd->cmd_type, swfCmdTypesString[cmd->cmd_type]);
+            printf("swfCMD %d: 0x%.8x (0x%.8x), of type %d %s\n", ccount++, old, cmd_relative, cmd->cmd_type, swfCmdTypesString[cmd->cmd_type]);
             switch(cmd->cmd_type) {
                 case 0: // swfPlaceObject2
                     swfCMD_placeObject2* place_o = (swfCMD_placeObject2*)(cmd + 1);
@@ -909,7 +911,11 @@ void list_frames(swfFRAME* frame, uint32_t count) {
                     printf("character: %d\n", place_o->character_id); // if character is 0xFFFF, that means a new character needs to be created
                     if(place_o->color_xform_ptr != 0) {
                         swfCXFORMWITHAPLHA* xform = (swfCXFORMWITHAPLHA*)getPtrFromOgAddress(place_o->color_xform_ptr);
-                        print_color(add_color(xform->add_term, xform->mult_term));
+                        RGBAColor white = {255,255,255,255};
+
+                        print_color(
+                            xform_color(white, *xform)
+                        );
                     } 
                     break;
                 case 1: // swfClipEvent
