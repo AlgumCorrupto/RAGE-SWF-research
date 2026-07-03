@@ -34,6 +34,8 @@
 #define WRITE_TEXT 1
 
 // clankkka wrote this
+// this is some quick hack that a clanker wrote for making a dds image out of dxt5 raw data
+// needs to be refactored out later.
 typedef struct {
     uint32_t dwSize;
     uint32_t dwFlags;
@@ -117,6 +119,8 @@ typedef struct {
     char padding1[3]; // 0xcdcdcd padding
 } PckSwfObjectTypeInfo;
 
+// the "ROOT of everything in the file"
+// from this object you can get to anywere else
 typedef struct {
     uint16_t unk1; // Selalu 1
     char padding1[2]; // 0xcdcd padding
@@ -130,9 +134,8 @@ typedef struct {
     uint16_t unk5; // selalu 0x43f0
     uint16_t maybeHeight; // maybe height in twips
     uint16_t objectCount; // jumlah objek di pointer + objek ini
-    uint32_t frame_count; // quantity of frames??? who fucking knows
+    uint32_t frame_count; // quantity of frames_ptr??? who fucking knows
 } swfFILE;
-
 
 
 // TODO: swfBITMAP
@@ -174,6 +177,9 @@ typedef struct {
     //void* data;
 } bmpTexture;
 
+// a swf bitmap as you may have guessed is an object that stores an image.
+// actually it stores a pointer to a pointer to a pointer that only then
+// contains the image data.
 typedef struct {
     uint32_t ptr_to_info1; // pointer to something
     // in pixels
@@ -185,13 +191,13 @@ typedef struct {
 
 typedef struct {
     uint8_t b, g, r, a;
-} ARGBcolor;
+} RGBAColor;
 
 typedef struct {
     float ax, ay, bx, by, cx, cy;
 } swfMATRIX;
 
-// i should have used C++ class inheritance
+// the text record types
 typedef enum {
     TR_END = 0,
     TR_FONT,
@@ -208,18 +214,23 @@ typedef struct {
 } TextRecord_FontConfig;
 typedef struct {
     uint16_t type; // value: 2
-    ARGBcolor color_rgba;
+    RGBAColor color_rgba;
 } TextRecord_Color;
 typedef struct {
     uint16_t type; // value: 3 or 4
     int16_t  offset;    
 } TextRecord_Offset;
-
+// okay this one is interesting
+// this struct is supposed to store the text that goes in the screen
+// but it is stored in a weird way, its not ASCII or any other encoding
+// that we are used to, it actually stores the position of the desired character
+// in relation to the font table, if the character 'a' needs to be stored but font 
+// stores the character 'A' in the position 0
+// the value 0 is stored in glyph_index not whatever is its character code in the ascii table.
 typedef struct {
     uint16_t glyph_index; // index in the font table
     uint16_t glyph_advance; // horizontal distance to the next glyph
 } GlyphEntry;
-
 typedef struct {
     uint16_t type; // value: 5
     uint16_t glyph_count;
@@ -227,11 +238,17 @@ typedef struct {
     GlyphEntry entries[];
 } TextRecord_GlyphArray; // case 5
 
+// this represents a static text
+// a text does not only have a string, its much more convoluted than that
+// it stores this text records ptr, contains instructions to change its
+// style like color, layout and text content, its basically what some
+// apps like microsoft word or godot calls "RichText"
 typedef struct {
     swfMATRIX matrix;
     uint32_t text_records_ptr;
 } swfTEXT;
 
+// this represents a font, it can be a vector font or a bitmap font, not fully understood by me yet - AlgumCorrupto
 typedef struct {
     uint16_t entry_count;
     uint16_t pad1; // 0xcdcd
@@ -241,24 +258,36 @@ typedef struct {
     // both have the same quantity of entries from the entry_count. 
 }swfFONT ;
 
+
+// this does NOT store an image
+// as a matter of fact sprite is the equivalent of a movie clip
+// you know, these things with timeline
 typedef struct {
     uint8_t pad1[3]; // 0xCDCDCD
     uint8_t frame_count8;  // frame count seems to be duplicated for some reason, maybe one is framerate and other
                            // is the actual frame count, no idea.
-    uint32_t frames;
+    uint32_t frames_ptr;
     uint32_t frame_count32;
 } swfSPRITE;
 
+// a swfSPRITE stores an array of frames, a frame is well,
+// a frame of the timeline, commands is actually a linked list of commands
+// to be realized in that frame.
 typedef struct {
-    uint32_t null0; // always null as far as i'm aware of
+    uint32_t null0; // always null as far as i'm aware of, maybe the length of the frame?
     uint32_t commands; // pointer to swfCMDs
 } swfFRAME;
 
+// this one is used in swfPlaceObject2 and swfClipEvent
+// so this is what they call a color transform.
+// there's a function that takes a RGB color, multiplies each component
+// by mult_term and then adds the result.
 typedef struct {
-    ARGBcolor mult_term;
-    ARGBcolor add_term;
+    RGBAColor mult_term;
+    RGBAColor add_term;
 } swfCXFORMWITHAPLHA;
 
+// i should have used C++ class inheritance here, basically everything swfCMD_* inherits from this
 typedef struct {
     uint32_t vtable;
     uint8_t cmd_type;
@@ -268,6 +297,7 @@ typedef struct {
     uint32_t next_CMD; // next command in the linked list
 } swfCMDHeader;
 
+// command for adding stuff in the screen
 typedef struct {
     // insert swfCMD_Header here
     uint16_t depth; 
@@ -281,6 +311,8 @@ typedef struct {
     uint32_t avm1_code_ptr; 
 } swfCMD_clipEvent_embedding;
 
+// command for adding some code that executes when some event happens
+// like moving the mouse cursor or whatever
 typedef struct {
     // insert swfCMD_Header here
     uint16_t depth; 
@@ -293,11 +325,13 @@ typedef struct {
     uint32_t name_ptr; // pointer to a standard ascii string that has the name of the movie clip
 } swfCMD_clipEvent;
 
+// command for you guessed it, removing stuff
 typedef struct {
     // insert swfCMD_Header here
     // this command does not seem to be bigger
 } swfCMD_removeObject2;
 
+// command for executing code
 typedef struct {
     // insert swfCMD_Header here
     uint32_t avm1_code_ptr; // points to the actual start of the code stream, no intermediate pointers like swfClipEvent
@@ -324,6 +358,7 @@ typedef struct {
     uint16_t y;
 } swfPoint;
 
+// a swfSHAPE can sometimes have a gradient
 typedef struct {
     swfMATRIX gradient_matrix; // some matrix of floats
     uint16_t stops_count; // quantity of colors in the gradients
@@ -332,10 +367,11 @@ typedef struct {
     uint32_t colors_ptr;// pointer to a rgba array
 } swfGRADIENT;
 
+// data from the fillstyle swfShape command
 typedef struct {
     uint8_t unk1; // no correlation to anything, maybe flags? not sure
     char tak_marker[3]; // for some reason there's a random ascii sequence 'tak'
-    ARGBcolor color_data; // rgba
+    RGBAColor color_data; // rgba
     swfMATRIX bitmap_matrix; // it's an identity matrix unless bitmap pointer points to something.
     uint32_t bitmap_pointer; // if has a bitmap, this is not null
     uint32_t gradient_pointer; 
@@ -358,7 +394,7 @@ typedef struct {
 typedef struct {
     uint16_t unk1;
     uint16_t unk2;
-    ARGBcolor color;
+    RGBAColor color;
 } swfSHAPE_StrokeStyle_data;
 
 typedef struct {
@@ -366,12 +402,21 @@ typedef struct {
     uint16_t style_index;
 } swfSHAPE_StrokeStyle;
 
+// okay this one functions in a similar way as swfTEXT,
+// in that it is a state machine, for example
+// set color to white
+// draw these vertices filled
+// set stroke width to 4
+// draw these next vertices as a stroke
+// blah blah blah
+// its like HTML5 canvas actually
 typedef struct {
     uint32_t fill_style_table;
     uint32_t stroke_style_table;
     uint32_t display_list_ptr;
 } swfSHAPE;
 
+// text alignment
 typedef enum {
     AL_LEFT = 0,
     AL_RIGHT,
@@ -379,6 +424,8 @@ typedef enum {
     AL_JUSTIFY,
 } swfEDITTEXT_alignment;
 
+// this struct represents a dynamic text,
+// not really sure how it works actually.
 typedef struct {
     // zero idea if this is right
     uint32_t initial_text;                
@@ -388,7 +435,7 @@ typedef struct {
     int16_t leading;
 
     // confident on this
-    ARGBcolor color;
+    RGBAColor color;
 
     // also confident on this
     uint16_t font_index;
@@ -409,6 +456,9 @@ typedef struct {
     uint8_t alignment;
 } swfEDITTEXT;
 
+// this is the AVM1 parsing part
+// AVM1 is the virtual machine of flash, when a project is exported
+// the action script code is turned into AVM1 bytecode.
 
 typedef struct {
     uint16_t unk1; // 01 00
@@ -560,8 +610,8 @@ uint32_t getAbsoluteAddrFromOgAddress(uint32_t base, uint32_t ogAddr) {
     return base + relative;
 }
 
-ARGBcolor add_color(ARGBcolor c1, ARGBcolor c2) {
-    return (ARGBcolor){
+RGBAColor add_color(RGBAColor c1, RGBAColor c2) {
+    return (RGBAColor){
         .a = c1.a + c2.a,
         .b = c1.b + c2.b,
         .g = c1.g + c2.g,
@@ -569,8 +619,8 @@ ARGBcolor add_color(ARGBcolor c1, ARGBcolor c2) {
     };
 }
 
-ARGBcolor mult_color(ARGBcolor c1, ARGBcolor c2) {
-    return (ARGBcolor){
+RGBAColor mult_color(RGBAColor c1, RGBAColor c2) {
+    return (RGBAColor){
         .a = c1.a * c2.a,
         .b = c1.b * c2.b,
         .g = c1.g * c2.g,
@@ -578,11 +628,11 @@ ARGBcolor mult_color(ARGBcolor c1, ARGBcolor c2) {
     };
 }
 
-ARGBcolor xform_color(ARGBcolor c, swfCXFORMWITHAPLHA x) {
+RGBAColor xform_color(RGBAColor c, swfCXFORMWITHAPLHA x) {
     return add_color(x.add_term, mult_color(c, x.mult_term));
 }
 
-void print_color(ARGBcolor c) {
+void print_color(RGBAColor c) {
     printf("\x1b[38;2;%d;%d;%dm", c.r, c.g, c.b);
     printf("#%.2X%.2X%.2X%.2X", c.r, c.g, c.b, c.a);
     printf("\x1b[0m\n");
@@ -938,7 +988,7 @@ int main(int argc, char* argv[]) {
 
     if(PRINT_SPRITE) {
         swfFRAME *file_frame = getPtrFromOgAddress(si->frames);
-        printf("Reading background frames...\n");
+        printf("Reading background frames_ptr...\n");
         list_frames(file_frame, si->frame_count);
     }
 
@@ -1019,7 +1069,7 @@ int main(int argc, char* argv[]) {
                         swfGRADIENT* gradient = (swfGRADIENT*)getPtrFromOgAddress(frecord->gradient_pointer);
                         printf("printing gradients\n");
                         for(int g_i = 0; g_i < gradient->stops_count; g_i++) {
-                            ARGBcolor* gcolor = (ARGBcolor*)getPtrFromOgAddress(gradient->colors_ptr + sizeof(ARGBcolor) * g_i);
+                            RGBAColor* gcolor = (RGBAColor*)getPtrFromOgAddress(gradient->colors_ptr + sizeof(RGBAColor) * g_i);
                             print_color(*gcolor);
                         }
                     }
@@ -1045,7 +1095,7 @@ int main(int argc, char* argv[]) {
 
             swfSPRITE* sprite = (swfSPRITE*)(oti + 1);
 
-            swfFRAME* frame = getPtrFromOgAddress(sprite->frames);
+            swfFRAME* frame = getPtrFromOgAddress(sprite->frames_ptr);
             list_frames(frame, sprite->frame_count32);
             break;
         case 4: // swfBITMAP
