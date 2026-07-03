@@ -1,12 +1,13 @@
-// this is for the ps2 version of the file
+// this one is for the xbox files
+// the PS2 version is a WIP
 
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-//#include <sys/types.h>
-//#include <sys/stat.h>
-//#include <libgen.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <libgen.h>
 #include <string.h>
 
 #define STB_DS_IMPLEMENTATION
@@ -28,17 +29,17 @@
 // http://tomhulton.blogspot.com/2011/12/load-in-place-data-structures-and.html
 
 // printing swfOBJECTS config
-#define PRINT_SPRITE 1 
-#define PRINT_BITMAP 0 // not working yet, dont set it to 1 pls
-#define PRINT_TEXT 0 
-#define PRINT_SHAPE 1
-#define PRINT_EDITTEXT 1
+#define PRINT_SPRITE 1
+#define PRINT_BITMAP 0
+#define PRINT_TEXT 0
+#define PRINT_SHAPE 0
+#define PRINT_EDITTEXT 0
 // all of these to the top were partially reversed in some way,
 // bottom ones still a work in progress
-#define PRINT_BUTTON 0
+#define PRINT_BUTTON 1
 #define PRINT_FONT 0
 
-#define PRINT_CODE 0 // must have PRINT_SPRITE on
+#define PRINT_CODE 0  // must have PRINT_SPRITE on
 // write bitmap to files, must have PRINT_BITMAP on
 #define WRITE_BITMAP 0
 #define WRITE_TEXT 0
@@ -124,9 +125,9 @@ typedef struct {
 } PckFileHeader;
 
 typedef struct {
+    uint32_t pointsToSwfVtable; // Points to swfFILE
     uint8_t objectType; // swfOBJECT type atau 0 pada awal
     char padding1[3]; // 0xcdcdcd padding
-    uint32_t pointsToSwfVtable; // Points to swfFILE
 } PckSwfObjectTypeInfo;
 
 // the "ROOT of everything in the file"
@@ -139,7 +140,7 @@ typedef struct {
 // then the contents of this structure layout is read
 // thiekus wrote it this way, i will refactor it later
 typedef struct {
-    uint16_t frame_count; // Selalu 1
+    uint16_t unk1; // Selalu 1
     char padding1[2]; // 0xcdcd padding
     uint32_t frames; // 0x30 at data
     uint32_t pointToObjectPtrList; // Begin pointer list
@@ -151,7 +152,7 @@ typedef struct {
     uint16_t unk5; // selalu 0x43f0
     uint16_t maybeHeight; // maybe height in twips
     uint16_t objectCount; // jumlah objek di pointer + objek ini
-    uint32_t unk; // quantity of frames_ptr??? who fucking knows
+    uint32_t frame_count; // quantity of frames_ptr??? who fucking knows
 } swfFILE;
 
 
@@ -207,12 +208,8 @@ typedef struct {
 } swfBITMAP;
 
 typedef struct {
-    uint8_t r, g, b, a;
-} RGBAColor;
-
-typedef struct {
     uint8_t b, g, r, a;
-} BGRAColor;
+} RGBAColor;
 
 typedef struct {
     float ax, ay, bx, by, cx, cy;
@@ -310,12 +307,12 @@ typedef struct {
 
 // i should have used C++ class inheritance here, basically everything swfCMD_* inherits from this
 typedef struct {
+    uint32_t vtable;
     uint8_t cmd_type;
     uint8_t flag1; // bit 0 defines if it has scale, bit 1 if it has rotation in swfCMD_placeObject2 & clipEvent
     uint8_t useless;
     uint8_t flag2; // used by swfCMD_removeObject2 (maybe its the ID of the object to be removed or depth? Who knows)
     uint32_t next_CMD; // next command in the linked list
-    uint32_t vtable;
 } swfCMDHeader;
 
 // command for adding stuff in the screen
@@ -589,7 +586,6 @@ char swfObjectTypesString[10][16] = {
 
 char swfCmdTypesString[5][32] = {
     "swfPlaceObject2", "swfClipEvent", "swfRemoveObject2", "swfCMD_doAction", "swfDoInitAction" // not sure about the last one
-
 };
 
 
@@ -926,25 +922,24 @@ void list_frames(swfFRAME* frame, uint32_t count) {
 
         uint32_t cmd_relative = getRelAddrFromOgAddress(frame->commands);
 
-        //printf("swfFRAME: %d\n", f_i);
+        printf("swfFRAME: %d\n", f_i);
         
         swfCMDHeader *cmd = getPtrFromOgAddress(frame->commands);
         uint32_t old = frame->commands;
         int count = 0;
         do {
-            //printf("swfCMD %d: 0x%.8x (0x%.8x), of type %d %s\n", count++, old, cmd_relative, cmd->cmd_type, swfCmdTypesString[cmd->cmd_type]);
+            printf("swfCMD %d: 0x%.8x (0x%.8x), of type %d %s\n", count++, old, cmd_relative, cmd->cmd_type, swfCmdTypesString[cmd->cmd_type]);
             switch(cmd->cmd_type) {
                 case 0: // swfPlaceObject2
                     swfCMD_placeObject2* place_o = (swfCMD_placeObject2*)(cmd + 1);
                     uint32_t* pointed = (uint32_t*)getPtrFromOgAddress(place_o->packed_matrix_ptr);
-                    //printf("character: %d\n", place_o->character_id); // if character is 0xFFFF, that means a new character needs to be created
+                    printf("character: %d\n", place_o->character_id); // if character is 0xFFFF, that means a new character needs to be created
                     if(place_o->color_xform_ptr != 0) {
                         swfCXFORMWITHAPLHA* xform = (swfCXFORMWITHAPLHA*)getPtrFromOgAddress(place_o->color_xform_ptr);
                         RGBAColor white = {255,255,255,255};
-                        printf("0x%.8x ", getOgAddressFromPointer(&xform->add_term));
                                             
                         print_color(
-                            xform->add_term
+                            xform_color(white, *xform)
                         );
                     } 
                     break;
@@ -952,7 +947,7 @@ void list_frames(swfFRAME* frame, uint32_t count) {
                     swfCMD_clipEvent* clip_e = (swfCMD_clipEvent*)(cmd + 1);
                     if(clip_e->name_ptr != 0 ) {
                         char* name = (char*)getPtrFromOgAddress(clip_e->name_ptr); 
-                        //printf("%s\n", name);
+                        printf("%s\n", name);
                     }
                     if(clip_e->code_wrapper_ptr != 0) {
                         swfCMD_clipEvent_embedding* wrapper = (swfCMD_clipEvent_embedding*)getPtrFromOgAddress(clip_e->code_wrapper_ptr);
@@ -979,7 +974,7 @@ void list_frames(swfFRAME* frame, uint32_t count) {
             cmd = getPtrFromOgAddress(cmd->next_CMD);
         } while(1);
 
-        //printf("\n");
+        printf("\n");
         ++frame;
     }
 }
@@ -1024,7 +1019,7 @@ int main(int argc, char* argv[]) {
 
     if(PRINT_SPRITE) {
         swfFRAME *file_frame = getPtrFromOgAddress(si->frames);
-        //printf("Reading background frames_ptr...\n");
+        printf("Reading background frames_ptr...\n");
         list_frames(file_frame, si->frame_count);
     }
 
@@ -1044,13 +1039,13 @@ int main(int argc, char* argv[]) {
     
     snprintf(outdir, sizeof(outdir), "%s", input_copy);
     
-    //mkdir(outdir, 0755);
+    mkdir(outdir, 0755);
     // clankkka over
 
     char txt_name[256];
     sprintf(txt_name, "./%s/strings.txt", outdir);
     FILE* txt_file = fopen(txt_name, "w");
-    //printf("Where the object list is located: 0x%.8x\n", si->pointToObjectPtrList);
+    printf("Where the object list is located: 0x%.8x\n", si->pointToObjectPtrList);
     // Object list
     uint32_t *ol = getPtrFromOgAddress(si->pointToObjectPtrList);
     // Index 0 is skipped because header object already read and this first entry always null
@@ -1060,9 +1055,9 @@ int main(int argc, char* argv[]) {
         uint32_t otiRelAddr = getRelAddrFromOgAddress(*ol);
         int otIndex = oti->objectType;
         if (otIndex >= 0 && otIndex <= 9) {
-            //printf("SWF object %d located at 0x%.8x (0x%.8x), type %d (%s)\n", i, *ol, otiRelAddr, otIndex, swfObjectTypesString[otIndex]);
+            printf("SWF object %d located at 0x%.8x (0x%.8x), type %d (%s)\n", i, *ol, otiRelAddr, otIndex, swfObjectTypesString[otIndex]);
         } else {
-            //printf("Invalid object type index %d at %d\n", otIndex, i);
+            printf("Invalid object type index %d at %d\n", otIndex, i);
             return 1;
         }
         switch (oti->objectType) {
@@ -1070,8 +1065,8 @@ int main(int argc, char* argv[]) {
             if(!PRINT_SHAPE) break;
 
             swfSHAPE* shape = (swfSHAPE*)(oti + 1);
-            //printf("Display list localized at 0x%.8x (0x%.8x)\n", shape->display_list_ptr, getRelAddrFromOgAddress(shape->display_list_ptr));
-            //printf("Display list data localized at 0x%.8x (0x%.8x)\n", shape->fill_style_table, getRelAddrFromOgAddress(shape->fill_style_table));
+            printf("Display list localized at 0x%.8x (0x%.8x)\n", shape->display_list_ptr, getRelAddrFromOgAddress(shape->display_list_ptr));
+            printf("Display list data localized at 0x%.8x (0x%.8x)\n", shape->fill_style_table, getRelAddrFromOgAddress(shape->fill_style_table));
             uint8_t* value_pointed = (uint8_t*)getPtrFromOgAddress(shape->stroke_style_table); 
             uint16_t* opcode = (uint16_t*) getPtrFromOgAddress(shape->display_list_ptr);
             uint8_t ended_s = 0;
@@ -1094,9 +1089,8 @@ int main(int argc, char* argv[]) {
                         shape->fill_style_table + sizeof(swfSHAPE_FillStyle_data) * (fillstyle->style_index-1)
                     );
                     if(frecord->bitmap_pointer != 0) {
-                        //printf("the bitmap pointer points to to 0x%.8x (0x%.8x)\n", frecord->bitmap_pointer, getRelAddrFromOgAddress(frecord->bitmap_pointer));
+                        printf("the bitmap pointer points to to 0x%.8x (0x%.8x)\n", frecord->bitmap_pointer, getRelAddrFromOgAddress(frecord->bitmap_pointer));
                     } else {
-                        printf("0x%.8x ", getOgAddressFromPointer(&frecord->color_data));
                         print_color(frecord->color_data);
                     }
                     //if(memcmp(record->tak_marker, "tak", 3)) {
@@ -1104,11 +1098,9 @@ int main(int argc, char* argv[]) {
                     //}
                     if(frecord->gradient_pointer != 0) {
                         swfGRADIENT* gradient = (swfGRADIENT*)getPtrFromOgAddress(frecord->gradient_pointer);
-                        //printf("printing gradients\n");
+                        printf("printing gradients\n");
                         for(int g_i = 0; g_i < gradient->stops_count; g_i++) {
                             RGBAColor* gcolor = (RGBAColor*)getPtrFromOgAddress(gradient->colors_ptr + sizeof(RGBAColor) * g_i);
-
-                            printf("0x%.8x ", gcolor);
                             print_color(*gcolor);
                         }
                     }
@@ -1119,7 +1111,7 @@ int main(int argc, char* argv[]) {
                     swfSHAPE_StrokeStyle_data* srecord = (swfSHAPE_StrokeStyle_data*)getPtrFromOgAddress(
                         shape->stroke_style_table + sizeof(swfSHAPE_StrokeStyle_data) * (strokestyle->style_index - 1)
                     ); 
-                    //printf("style index stored is  %d\n", strokestyle->style_index);
+                    printf("style index stored is  %d\n", strokestyle->style_index);
                     opcode = (uint16_t*)(((swfSHAPE_StrokeStyle*) opcode) + 1);
                     break;
                 default:
@@ -1216,7 +1208,7 @@ int main(int argc, char* argv[]) {
             case 6: //swfTEXT
                 if(!PRINT_TEXT) break;
                 swfTEXT* text_obj = (swfTEXT*)(oti + 1);
-                //printf("text record at %.8x\n", text_obj->text_records_ptr);
+                printf("text record at %.8x\n", text_obj->text_records_ptr);
 
                 uint16_t* text_record_type = getPtrFromOgAddress(text_obj->text_records_ptr);
                 uint8_t ended_t = 0;
@@ -1234,7 +1226,6 @@ int main(int argc, char* argv[]) {
                         break;
                     case TR_COLOR:
                         TextRecord_Color* tr_color = (TextRecord_Color*)(text_record_type);
-                        printf("0x%.8x ", getOgAddressFromPointer(&tr_color->color_rgba));
                         print_color(tr_color->color_rgba);
                         text_record_type = (uint16_t*)(((TextRecord_Color*)text_record_type) + 1);
                         break;
@@ -1278,8 +1269,6 @@ int main(int argc, char* argv[]) {
             if(!PRINT_EDITTEXT) break;
 
             swfEDITTEXT* editt = (swfEDITTEXT*)(oti + 1);
-
-            printf("0x%.8x ", getOgAddressFromPointer(&editt->color));
             print_color(editt->color);
             break;
         default:
