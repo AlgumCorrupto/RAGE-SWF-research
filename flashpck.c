@@ -7,6 +7,9 @@
 #include <libgen.h>
 #include <string.h>
 
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h"
+
 #pragma pack(push, 1) // All packed struct, don't let compiler align
 
 // just to make things more clear
@@ -25,6 +28,7 @@
 #define PRINT_BUTTON 1
 #define PRINT_FONT 0
 
+#define PRINT_CODE 1  // must have PRINT_SPRITE on
 // write bitmap to files, must have PRINT_BITMAP on
 #define WRITE_BITMAP 1
 #define WRITE_TEXT 1
@@ -92,6 +96,8 @@ void write_dds_header(FILE *f, uint32_t width, uint32_t height, uint32_t linearS
 }
 // clankkka over
 
+
+
 // not sure what this struct
 typedef struct {
     uint8_t num;
@@ -127,17 +133,7 @@ typedef struct {
     uint32_t frame_count; // quantity of frames??? who fucking knows
 } swfFILE;
 
-typedef struct {
-    uint32_t bytecode; 
-} swfDoAction;
 
-typedef struct {
-    uint16_t unk1; // 01 00
-    // then you have the AVM1 bytecode, i'm not gonna bother representing in the struct
-    // remember that avm1 bytecode functions similar to a c string,
-    // that there's a specific "instruction" that marks the end of the code.
-    // shoutout to bruno for making imhex pattern code that parses the AVM1 bytecode
-} AVM1Bytecode;
 
 // TODO: swfBITMAP
 // i've discovered with the help of this wonderful tool called texture finder that
@@ -259,7 +255,6 @@ typedef struct {
 } swfFRAME;
 
 typedef struct {
-    // both of them are composed by fixed point 8.8 RGBA
     ARGBcolor mult_term;
     ARGBcolor add_term;
 } swfCXFORMWITHAPLHA;
@@ -267,8 +262,9 @@ typedef struct {
 typedef struct {
     uint32_t vtable;
     uint8_t cmd_type;
-    uint8_t flags; // bit 0 defines if it has scale, bit 1 if it has rotation
-    uint8_t useless[2];
+    uint8_t flag1; // bit 0 defines if it has scale, bit 1 if it has rotation in swfCMD_placeObject2 & clipEvent
+    uint8_t useless;
+    uint8_t flag2; // used by swfCMD_removeObject2 (maybe its the ID of the object to be removed or depth? Who knows)
     uint32_t next_CMD; // next command in the linked list
 } swfCMDHeader;
 
@@ -281,9 +277,9 @@ typedef struct {
 } swfCMD_placeObject2;
 
 typedef struct {
-    uint32_t unk1;
-    uint32_t action_list_ptr;
-} codeWrapper;
+    uint32_t embedding_type;
+    uint32_t avm1_code_ptr; 
+} swfCMD_clipEvent_embedding;
 
 typedef struct {
     // insert swfCMD_Header here
@@ -293,9 +289,19 @@ typedef struct {
     uint32_t color_xform_ptr;
     uint32_t unk1;
     uint32_t unk2;
-    uint32_t code_wrapper_ptr;
+    uint32_t code_wrapper_ptr; // can be null
     uint32_t name_ptr; // pointer to a standard ascii string that has the name of the movie clip
 } swfCMD_clipEvent;
+
+typedef struct {
+    // insert swfCMD_Header here
+    // this command does not seem to be bigger
+} swfCMD_removeObject2;
+
+typedef struct {
+    // insert swfCMD_Header here
+    uint32_t avm1_code_ptr; // points to the actual start of the code stream, no intermediate pointers like swfClipEvent
+} swfCMD_doAction;
 
 // fillstyle commands sheet:
 // 0: end of commands
@@ -403,18 +409,124 @@ typedef struct {
     uint8_t alignment;
 } swfEDITTEXT;
 
+
+typedef struct {
+    uint16_t unk1; // 01 00
+    // then you have the AVM1 bytecode, i'm not gonna bother representing in the struct
+    // remember that avm1 bytecode functions similar to a c string,
+    // that there's a specific "instruction" that marks the end of the code.
+    // shoutout to bruno for making imhex pattern code that parses the AVM1 bytecode
+} AVM1Bytecode;
+
+typedef enum {
+    AC_END = 0,
+    AC_PLAY = 0x06,
+    AC_STOP = 0x07,
+    AC_TOGGLE_QUALITY = 0x08,
+    AC_STOP_SOUNDS = 0x09,
+    AC_ADD = 0x0a,
+    AC_SUBTRACT = 0x0b,
+    AC_STRING_EQUALS = 0x13,
+    AC_MULTIPLY = 0x0c,
+    AC_DIVIDE = 0x0d,
+    AC_OR = 0x11,
+    AC_NOT = 0x12,
+    AC_TO_INT = 0x18,
+    AC_GETVAR = 0x1C,
+    AC_SETVAR = 0x1D,
+    AC_STRINGADD = 0x21,
+    AC_STRING_EXTRACT = 0x15,
+    AC_NEW_OBJ = 0x40,
+    AC_GET_MEMBER = 0x4E,
+    AC_SET_MEMBER = 0X4F,
+    AC_ADD2 = 0x47,
+    AC_LESS2 = 0x48,
+    AC_EQUALS2 = 0x49,
+    AC_INCREMENT = 0x50,
+    AC_CALLMETHOD = 0x52,
+    AC_GREATER = 0x67, // i'm boutta kms
+    AC_CONSTANTPOOL = 0x88,
+    AC_WAIT_FOR_FRAME = 0x8a,
+    AC_PUSH = 0x96,
+    AC_POP = 0X17,
+    AC_DECREMENT = 0x51,
+    AC_IF = 0x9D,
+    AC_JUMP = 0x99,
+    AC_GOTO_FRAME = 0x81,
+    AC_PUSH_DUPLICATE = 0X4C,
+    AC_TRACE = 0x26,
+} AVM1Opcodes;
+
+typedef struct {
+    uint8_t opcode; // 0x88
+    uint16_t length;
+    uint16_t constant_count;
+    char strings[];
+} swfAction_ConstantPool;
+
+typedef enum {
+    SP_STRING = 0, // null terminated string
+    SP_FLOAT, // 32 bit float
+    // i suppose these two dont store any data,
+    // flash docs doesn't make that explicit
+    SP_NULL,
+    SP_UNDEFINED,
+    SP_REGISTER, // ui8
+    SP_BOOLEAN, // ui8
+    SP_DOUBLE,  // 64 bit float
+    SP_INTEGER, // ui32 little endian
+    SP_CONSTANT8, // constant pool index for indices < 256 (ui8)
+    SP_CONSTANT16, // constant pool index for indicies >= 256 (ui16)
+} swfAction_StackPush_Types;
+
+
+typedef struct {
+    uint8_t opcode;
+    uint16_t length;
+    uint8_t data[];
+} swfAction_StackPush;
+
+typedef struct {
+    uint8_t opcode;
+    uint16_t length; // always 3
+    uint16_t frame; // frame to wait for, dunno why they call WORD 16 bits, kinda weird
+    uint8_t skip_count; // number of actions to skip if frame is not loaded
+} swfAction_WaitForFrame;
+
+typedef struct {
+    uint8_t opcode;
+    uint16_t length;
+    uint16_t offset;
+} swfAction_if;
+
+typedef struct {
+    uint8_t opcode;
+    uint16_t length;
+    uint16_t frame_idx;
+} swfAction_gotoFrame;
+
+typedef struct {
+    uint8_t opcode;
+    uint16_t length;
+    uint16_t offset;
+} swfAction_jump;
 #pragma pack(pop) // End packed struct
 
 char swfObjectTypesString[10][16] = {
     "header", "swfSHAPE", "swfSPRITE", "swfBUTTON", "swfBITMAP", "swfFONT", "swfTEXT", "swfEDITTEXT", "swfSOUND", "swfMORPHSHAPE"
 };
 
-char swfCmdTypesString[4][32] = {
-    "swfPlaceObject2", "swfClipEvent", "swfDoInitAction", "swfDoAction"
+char swfCmdTypesString[5][32] = {
+    "swfPlaceObject2", "swfClipEvent", "swfRemoveObject2", "swfCMD_doAction", "swfDoInitAction" // not sure about the last one
 };
+
+
+
 
 static uint32_t savedOgBaseAddress = 0;
 static void *savedCurBaseAddress;
+
+
 
 void setOriginalBaseAddress(uint32_t baseAddr)
 {
@@ -431,8 +543,10 @@ void *getPtrFromOgAddress(uint32_t ogAddr)
     return savedCurBaseAddress + (ogAddr - savedOgBaseAddress);
 }
 
-uint32_t getOgAddressFromPointer(size_t pointer) {
-    return (uint32_t)(pointer - (size_t)savedCurBaseAddress);
+uint32_t getOgAddressFromPointer(void *ptr)
+{
+    return savedOgBaseAddress +
+           ((uint8_t *)ptr - (uint8_t *)savedCurBaseAddress);
 }
 
 uint32_t getRelAddrFromOgAddress(uint32_t ogAddr)
@@ -474,11 +588,260 @@ void print_color(ARGBcolor c) {
     printf("\x1b[0m\n");
 }
 
+
+void parse_avm1(AVM1Bytecode* code) {
+    if(!PRINT_CODE) return;
+    // skipping the first uint16    
+    uint8_t* opcode = (uint8_t*)(code+1);
+    uint8_t ended = 0;
+    char** constants = NULL; 
+    while(!ended) {
+        printf("0x%.8x %.2x ", getOgAddressFromPointer(opcode), *opcode);
+        switch(*opcode) {
+            case AC_END: // opcode 0x0
+                ended = 1;
+                printf("end\n");
+                break;
+            case AC_PLAY: // opcode 0x6
+                opcode++;
+                printf("play\n");
+                break;
+            case AC_STOP: // opcode 0x7
+                printf("stop\n");
+                opcode++;
+                break;
+            case AC_TOGGLE_QUALITY: // opcode 0x08
+                opcode++;
+                printf("toggle quality\n");
+                break;
+            case AC_STOP_SOUNDS: // opcode 0x09
+                opcode++;
+                printf("stop sounds\n");
+                break;
+            case AC_ADD: // opcode 0x0a
+                opcode++;
+                printf("math add\n");
+                break;
+            case AC_PUSH_DUPLICATE:
+                opcode++;
+                printf("push duplicate\n");
+                break;
+            case AC_SUBTRACT:
+                opcode++;
+                printf("math subtract\n");
+                break;
+            case AC_MULTIPLY:
+                opcode++;
+                printf("math multiply\n");
+                break;
+            case AC_DIVIDE:
+                opcode++;
+                printf("math divide\n");
+                break;
+            case AC_STRING_EQUALS: 
+                opcode++;
+                printf("string equals\n");
+                break;
+            case AC_OR:
+                opcode++;
+                printf("math or\n");
+                break;
+            case AC_NOT:
+                opcode++;
+                printf("math not\n");
+                break;
+            case AC_STRING_EXTRACT:
+                opcode++;
+                printf("string extract\n");
+                break;
+            case AC_TO_INT:
+                opcode++;
+                printf("to integer\n");
+                break;
+            case AC_GETVAR: // opcode 0x1c
+                opcode++;
+                printf("get variable\n");
+                break;
+            case AC_SETVAR: // opcode 0x1d
+                opcode++;
+                printf("set variable\n");
+                break;
+            case AC_STRINGADD: // opcode 0x21
+                opcode++;
+                printf("string concatenation\n");
+                break;
+            case AC_NEW_OBJ: // opcode 0x40
+                opcode++;
+                printf("new object\n");
+            case AC_GET_MEMBER:
+                opcode++;
+                printf("get member\n");
+                break;
+            case AC_SET_MEMBER: // opcode 0x4f
+                opcode++;
+                printf("set member\n");
+                break;
+            case AC_ADD2:
+                opcode++;
+                printf("math add2\n");
+                break;
+            case AC_LESS2:
+                opcode++;
+                printf("math less2\n");
+                break;
+            case AC_EQUALS2: // opcode 0x49
+                opcode++;
+                printf("math equals2\n");
+                break;
+            case AC_INCREMENT: // opcode 0x50
+                opcode++;
+                printf("increment\n");
+                break;
+            case AC_CALLMETHOD:
+                opcode++;
+                printf("call method\n");
+                break;
+            case AC_GREATER: // opcode 0x67
+                opcode++;
+                printf("math greater\n");
+                break;
+            case AC_CONSTANTPOOL: { // opcode 0x88
+                swfAction_ConstantPool *cp = (swfAction_ConstantPool *)opcode;
+                printf("constant pool\n");
+
+                char *constant_name = cp->strings;
+                for (uint16_t i = 0; i < cp->constant_count; ++i) {
+                    stbds_arrput(constants, constant_name);
+                    //printf("%s\n", constant_name);
+                    constant_name += strlen(constant_name) + 1;
+                }
+            
+                opcode = (uint8_t *)(constant_name);
+                break;
+            }
+            case AC_POP:
+                printf("pop\n");
+                opcode++;
+                break;
+            case AC_DECREMENT:
+                printf("decrement\n");
+                opcode++;
+                break;
+            case AC_TRACE:
+                printf("debug trace\n");
+                opcode++;
+                break;
+            case AC_PUSH: { // opcode 0x96
+                swfAction_StackPush *push = (swfAction_StackPush *)opcode;
+            
+                uint8_t *p   = push->data;
+                uint8_t *end = p + push->length;
+            
+                while (p < end) {
+                    uint8_t type = *p++;
+                
+                    switch (type) {
+                    
+                case SP_CONSTANT8:
+                    printf("push constant8 \"%s\"\n",
+                           constants[*p]);
+                    p += 1;
+                    break;
+                    
+                case SP_CONSTANT16: {
+                    uint16_t idx = *(uint16_t *)p;
+                    printf("push constant16 \"%s\"\n",
+                           constants[idx]);
+                    p += 2;
+                    break;
+                }
+
+                case SP_STRING:
+                    printf("push string \"%s\"\n", (char *)p);
+                    p += strlen((char *)p) + 1;
+                    break;
+
+                case SP_FLOAT: {
+                    float value = *(float *)p;
+                    printf("push float %f\n", value);
+                    p += 4;
+                    break;
+                }
+
+                case SP_DOUBLE: {
+                    double value = *(double *)p;
+                    printf("push double %f\n", value);
+                    p += 8;
+                    break;
+                }
+
+                case SP_INTEGER: {
+                    int32_t value = *(int32_t *)p;
+                    printf("push int %d\n", value);
+                    p += 4;
+                    break;
+                }
+
+                case SP_BOOLEAN:
+                    printf("push bool %s\n", *p ? "true" : "false");
+                    p += 1;
+                    break;
+
+                case SP_REGISTER:
+                    printf("push register %u\n", *p);
+                    p += 1;
+                    break;
+
+                case SP_NULL:
+                    printf("push null\n");
+                    break;
+
+                case SP_UNDEFINED:
+                    printf("push undefined\n");
+                    break;
+                
+                    default:
+                        printf("unknown push type 0x%u\n", type);
+                        exit(1);
+                    }
+                }
+            
+                opcode = end;
+                break;
+            }
+            case AC_GOTO_FRAME:
+                swfAction_gotoFrame* a_frame = (swfAction_gotoFrame*)opcode;
+                printf("goto frame %d\n", a_frame->frame_idx);
+                opcode = (uint8_t*)(a_frame+1);
+                break;
+            case AC_IF:
+                swfAction_if* a_if = (swfAction_if*)opcode;
+                printf("goto %d if 0\n", a_if->offset);
+                opcode = (uint8_t*)(a_if+1);
+                break;
+            case AC_JUMP:
+                swfAction_jump* a_jump = (swfAction_jump*)opcode;
+                printf("goto %d\n", a_jump->offset);
+                opcode = (uint8_t*)(a_jump+1);
+                break;
+            case AC_WAIT_FOR_FRAME: // opcode 0x8a
+                swfAction_WaitForFrame* wait_ff = (swfAction_WaitForFrame*)opcode;
+
+                printf("wait for frame %d, skip %d codes\n", wait_ff->frame, wait_ff->skip_count);
+                opcode = (uint8_t*)(wait_ff+1);
+                break;
+            default:
+                printf("unknown opcode\n", *opcode);
+                exit(1);
+                break;
+        }
+    }
+    stbds_arrfree(constants);
+}
+
 void list_frames(swfFRAME* frame, uint32_t count) {
     for(int f_i = 0; f_i < count; f_i++) {
         if(frame->commands == 0) continue; 
-
-        // uint32_t frame_display = getRelAddrFromOgAddress(sprite->frames);
 
         uint32_t cmd_relative = getRelAddrFromOgAddress(frame->commands);
 
@@ -490,24 +853,37 @@ void list_frames(swfFRAME* frame, uint32_t count) {
         do {
             printf("swfCMD %d: 0x%.8x (0x%.8x), of type %d %s\n", count++, old, cmd_relative, cmd->cmd_type, swfCmdTypesString[cmd->cmd_type]);
             switch(cmd->cmd_type) {
-                case 0:
+                case 0: // swfPlaceObject2
                     swfCMD_placeObject2* place_o = (swfCMD_placeObject2*)(cmd + 1);
                     uint32_t* pointed = (uint32_t*)getPtrFromOgAddress(place_o->packed_matrix_ptr);
                     printf("character: %d\n", place_o->character_id); // if character is 0xFFFF, that means a new character needs to be created
-                    //if(*pointed != 0) {
-                    //    printf("VALUE LIL WEIRD\n0x%.8x\n", *pointed);
-                    //}
                     if(place_o->color_xform_ptr != 0) {
                         swfCXFORMWITHAPLHA* xform = (swfCXFORMWITHAPLHA*)getPtrFromOgAddress(place_o->color_xform_ptr);
                         print_color(add_color(xform->add_term, xform->mult_term));
                     } 
                     break;
-                case 1:
+                case 1: // swfClipEvent
                     swfCMD_clipEvent* clip_e = (swfCMD_clipEvent*)(cmd + 1);
                     if(clip_e->name_ptr != 0 ) {
                         char* name = (char*)getPtrFromOgAddress(clip_e->name_ptr); 
                         printf("%s\n", name);
-                   }
+                    }
+                    if(clip_e->code_wrapper_ptr != 0) {
+                        swfCMD_clipEvent_embedding* wrapper = (swfCMD_clipEvent_embedding*)getPtrFromOgAddress(clip_e->code_wrapper_ptr);
+                        if(wrapper->embedding_type == 2) {
+                            AVM1Bytecode* code_ptrc = (AVM1Bytecode*)getPtrFromOgAddress(wrapper->avm1_code_ptr);
+                            parse_avm1(code_ptrc);
+                        }
+                    }
+
+                    break;
+                case 2: // swfRemoveObject2
+                    break;
+
+                case 3: //swfCMD_doAction
+                    swfCMD_doAction* do_a = (swfCMD_doAction*)(cmd+1);
+                    AVM1Bytecode* code_ptrd = (AVM1Bytecode*)getPtrFromOgAddress(do_a->avm1_code_ptr);
+                    parse_avm1(code_ptrd);
                 default:
                     break;
             }
