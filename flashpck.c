@@ -1063,7 +1063,7 @@ int main(int argc, char* argv[]) {
     //mkdir(outdir, 0755);
     // clankkka over
 
-    char txt_name[256];
+    char txt_name[2048];
     sprintf(txt_name, "./%s/strings.txt", outdir);
     FILE* txt_file = fopen(txt_name, "w");
     //printf("Where the object list is located: 0x%.8x\n", si->pointToObjectPtrList);
