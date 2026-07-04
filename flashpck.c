@@ -1244,6 +1244,11 @@ int main(int argc, char* argv[]) {
                 printf("unknown shit %d\n", idx_colors->color_count);
                 exit(1);
             }
+            // hack
+            for(int pos = 0; pos < num_pixels; pos++) {
+                if(colors[pos].a != 0)
+                    colors[pos].a = 255;
+            }
             char raw_name[1024];
             char cmd[2048];
 
