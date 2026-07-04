@@ -587,6 +587,7 @@ char swfObjectTypesString[10][16] = {
     "header", "swfSHAPE", "swfSPRITE", "swfBUTTON", "swfBITMAP", "swfFONT", "swfTEXT", "swfEDITTEXT", "swfSOUND", "swfMORPHSHAPE"
 };
 
+
 char swfCmdTypesString[5][32] = {
     "swfPlaceObject2", "swfClipEvent", "swfRemoveObject2", "swfCMD_doAction", "swfDoInitAction" // not sure about the last one
 
@@ -920,6 +921,12 @@ void parse_avm1(AVM1Bytecode* code) {
     stbds_arrfree(constants);
 }
 
+uint8_t number_in(uint16_t number, uint16_t* arr, uint16_t count) {
+    for(int i = 0; i < count; i++)
+        if(number == arr[i]) return 1;
+    return 0;
+}
+
 void list_frames(swfFRAME* frame, uint32_t count) {
     for(int f_i = 0; f_i < count; f_i++) {
         if(frame->commands == 0) continue; 
@@ -941,11 +948,20 @@ void list_frames(swfFRAME* frame, uint32_t count) {
                     if(place_o->color_xform_ptr != 0) {
                         swfCXFORMWITHAPLHA* xform = (swfCXFORMWITHAPLHA*)getPtrFromOgAddress(place_o->color_xform_ptr);
                         RGBAColor white = {255,255,255,255};
-                        printf("0x%.8x ", getOgAddressFromPointer(&xform->add_term));
+                        if(place_o->character_id != 0xffff) {
+                            printf("0x%.8x modifies color of an object, worth checking out\n", getOgAddressFromPointer(&xform->add_term), place_o->character_id);
                                             
-                        print_color(
-                            xform->add_term
-                        );
+
+                            printf("mult term " , getOgAddressFromPointer(&xform->mult_term));
+                            print_color(
+                                xform->mult_term
+                            );
+                            printf("add term ");
+                            print_color(
+                                xform->add_term
+                            );
+
+                        }
                     } 
                     break;
                 case 1: // swfClipEvent
@@ -1059,11 +1075,9 @@ int main(int argc, char* argv[]) {
         PckSwfObjectTypeInfo *oti = getPtrFromOgAddress(*ol);
         uint32_t otiRelAddr = getRelAddrFromOgAddress(*ol);
         int otIndex = oti->objectType;
-        if (otIndex >= 0 && otIndex <= 9) {
-            //printf("SWF object %d located at 0x%.8x (0x%.8x), type %d (%s)\n", i, *ol, otiRelAddr, otIndex, swfObjectTypesString[otIndex]);
-        } else {
-            //printf("Invalid object type index %d at %d\n", otIndex, i);
-            return 1;
+        uint16_t in_arr[3] = {1,6,7};
+        if (number_in(otIndex, in_arr, 3)) {
+            printf("SWF object %d located at 0x%.8x (0x%.8x), type %d (%s)\n", i, *ol, otiRelAddr, otIndex, swfObjectTypesString[otIndex]);
         }
         switch (oti->objectType) {
         case 1: // swfSHAPE
