@@ -12,6 +12,7 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
+// cross platform mkdir
 #ifdef _WIN32
     #include <direct.h>
     #define make_directory(path) _mkdir(path)
@@ -38,7 +39,7 @@
 
 // printing swfOBJECTS config
 #define PRINT_SPRITE 1 
-#define PRINT_BITMAP 0 // not working yet, dont set it to 1 pls
+#define PRINT_BITMAP 1 // not working yet, dont set it to 1 pls
 #define PRINT_TEXT 0 
 #define PRINT_SHAPE 1
 #define PRINT_EDITTEXT 1
