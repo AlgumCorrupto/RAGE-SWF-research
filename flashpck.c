@@ -933,7 +933,7 @@ void list_frames(swfFRAME* frame, uint32_t count) {
 
         uint32_t cmd_relative = getRelAddrFromOgAddress(frame->commands);
 
-        //printf("swfFRAME: %d\n", f_i);
+        printf("swfFRAME: %d\n", f_i);
         
         swfCMDHeader *cmd = getPtrFromOgAddress(frame->commands);
         uint32_t old = frame->commands;
@@ -949,17 +949,17 @@ void list_frames(swfFRAME* frame, uint32_t count) {
                         swfCXFORMWITHAPLHA* xform = (swfCXFORMWITHAPLHA*)getPtrFromOgAddress(place_o->color_xform_ptr);
                         RGBAColor white = {255,255,255,255};
                         if(place_o->character_id != 0xffff) {
-                            printf("0x%.8x modifies color of an object, worth checking out\n", getOgAddressFromPointer(&xform->add_term), place_o->character_id);
-                                            
+                            //printf("0x%.8x modifies color of an object, worth checking out\n", getOgAddressFromPointer(&xform->add_term), place_o->character_id);
+                            //                
 
-                            printf("mult term " , getOgAddressFromPointer(&xform->mult_term));
-                            print_color(
-                                xform->mult_term
-                            );
-                            printf("add term ");
-                            print_color(
-                                xform->add_term
-                            );
+                            //printf("mult term " , getOgAddressFromPointer(&xform->mult_term));
+                            //print_color(
+                            //    xform->mult_term
+                            //);
+                            //printf("add term ");
+                            //print_color(
+                            //    xform->add_term
+                            //);
 
                         }
                     } 
@@ -968,7 +968,7 @@ void list_frames(swfFRAME* frame, uint32_t count) {
                     swfCMD_clipEvent* clip_e = (swfCMD_clipEvent*)(cmd + 1);
                     if(clip_e->name_ptr != 0 ) {
                         char* name = (char*)getPtrFromOgAddress(clip_e->name_ptr); 
-                        //printf("%s\n", name);
+                        printf("%s\n", name);
                     }
                     if(clip_e->code_wrapper_ptr != 0) {
                         swfCMD_clipEvent_embedding* wrapper = (swfCMD_clipEvent_embedding*)getPtrFromOgAddress(clip_e->code_wrapper_ptr);
@@ -1063,7 +1063,7 @@ int main(int argc, char* argv[]) {
     //mkdir(outdir, 0755);
     // clankkka over
 
-    char txt_name[256];
+    char txt_name[2048];
     sprintf(txt_name, "./%s/strings.txt", outdir);
     FILE* txt_file = fopen(txt_name, "w");
     //printf("Where the object list is located: 0x%.8x\n", si->pointToObjectPtrList);
@@ -1075,17 +1075,20 @@ int main(int argc, char* argv[]) {
         PckSwfObjectTypeInfo *oti = getPtrFromOgAddress(*ol);
         uint32_t otiRelAddr = getRelAddrFromOgAddress(*ol);
         int otIndex = oti->objectType;
-        uint16_t in_arr[3] = {1,6,7};
-        if (number_in(otIndex, in_arr, 3)) {
+        if (otIndex >= 0 && otIndex <= 9) {
             printf("SWF object %d located at 0x%.8x (0x%.8x), type %d (%s)\n", i, *ol, otiRelAddr, otIndex, swfObjectTypesString[otIndex]);
+        } else {
+            printf("SWF object %d locating at 0x%.8x (0x%.8x) not valid (type %d), halting\n", i, *ol, otiRelAddr, otIndex);
+            exit(1);
         }
+
         switch (oti->objectType) {
         case 1: // swfSHAPE
             if(!PRINT_SHAPE) break;
 
             swfSHAPE* shape = (swfSHAPE*)(oti + 1);
-            //printf("Display list localized at 0x%.8x (0x%.8x)\n", shape->display_list_ptr, getRelAddrFromOgAddress(shape->display_list_ptr));
-            //printf("Display list data localized at 0x%.8x (0x%.8x)\n", shape->fill_style_table, getRelAddrFromOgAddress(shape->fill_style_table));
+            printf("Display list localized at 0x%.8x (0x%.8x)\n", shape->display_list_ptr, getRelAddrFromOgAddress(shape->display_list_ptr));
+            printf("Display list data localized at 0x%.8x (0x%.8x)\n", shape->fill_style_table, getRelAddrFromOgAddress(shape->fill_style_table));
             uint8_t* value_pointed = (uint8_t*)getPtrFromOgAddress(shape->stroke_style_table); 
             uint16_t* opcode = (uint16_t*) getPtrFromOgAddress(shape->display_list_ptr);
             uint8_t ended_s = 0;
@@ -1108,17 +1111,14 @@ int main(int argc, char* argv[]) {
                         shape->fill_style_table + sizeof(swfSHAPE_FillStyle_data) * (fillstyle->style_index-1)
                     );
                     if(frecord->bitmap_pointer != 0) {
-                        //printf("the bitmap pointer points to to 0x%.8x (0x%.8x)\n", frecord->bitmap_pointer, getRelAddrFromOgAddress(frecord->bitmap_pointer));
+                        printf("the bitmap pointer points to to 0x%.8x (0x%.8x)\n", frecord->bitmap_pointer, getRelAddrFromOgAddress(frecord->bitmap_pointer));
                     } else {
                         printf("0x%.8x ", getOgAddressFromPointer(&frecord->color_data));
                         print_color(frecord->color_data);
                     }
-                    //if(memcmp(record->tak_marker, "tak", 3)) {
-                    //    printf("=============\nTHIS ONE DOES NOT HAVE 'tak'\nvalue: %.2x %.2x %.2x\n", record->tak_marker[0], record->tak_marker[1], record->tak_marker[2]);
-                    //}
                     if(frecord->gradient_pointer != 0) {
                         swfGRADIENT* gradient = (swfGRADIENT*)getPtrFromOgAddress(frecord->gradient_pointer);
-                        //printf("printing gradients\n");
+                        printf("printing gradients\n");
                         for(int g_i = 0; g_i < gradient->stops_count; g_i++) {
                             RGBAColor* gcolor = (RGBAColor*)getPtrFromOgAddress(gradient->colors_ptr + sizeof(RGBAColor) * g_i);
 
@@ -1133,7 +1133,7 @@ int main(int argc, char* argv[]) {
                     swfSHAPE_StrokeStyle_data* srecord = (swfSHAPE_StrokeStyle_data*)getPtrFromOgAddress(
                         shape->stroke_style_table + sizeof(swfSHAPE_StrokeStyle_data) * (strokestyle->style_index - 1)
                     ); 
-                    //printf("style index stored is  %d\n", strokestyle->style_index);
+                    printf("style index stored is  %d\n", strokestyle->style_index);
                     opcode = (uint16_t*)(((swfSHAPE_StrokeStyle*) opcode) + 1);
                     break;
                 default:
@@ -1163,7 +1163,7 @@ int main(int argc, char* argv[]) {
             printf("info 3... 0x%.8x\n", info2->ptr_to_texture);
             bmpTexture* info3 = getPtrFromOgAddress(info2->ptr_to_texture);
             uint32_t end = info2->ptr_to_texture + sizeof(bmpTexture);
-            //printf("%.8x end", end)
+            printf("%.8x end", end);
             // getting the closest biggest address multiple of 0x80
             uint32_t multiple = 0x80;
             uint32_t offset = (multiple - (end % multiple)) % multiple;
@@ -1268,9 +1268,9 @@ int main(int argc, char* argv[]) {
                         TextRecord_GlyphArray* glyph_array = (TextRecord_GlyphArray*)text_record_type;
                         GlyphEntry* entry = (GlyphEntry*)(glyph_array + 1);
                         uint16_t* characters = getPtrFromOgAddress(current_font->character_array);
-                        //printf("text glyph\n");
-                        //printf("font characters at 0x%.8x\n", current_font->character_array);
-                        //printf("printing the text...\n");
+                        printf("text glyph\n");
+                        printf("font characters at 0x%.8x\n", current_font->character_array);
+                        printf("printing the text...\n");
                         if(WRITE_TEXT) {
                             for(size_t f_i = 0; f_i < glyph_array->glyph_count; f_i++) {
                                 fprintf(txt_file, "%c", characters[entry->glyph_index]);
