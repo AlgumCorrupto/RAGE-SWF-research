@@ -39,7 +39,7 @@
 // printing swfOBJECTS config
 #define PRINT_SPRITE 1 
 #define PRINT_BITMAP 0 // not working yet, dont set it to 1 pls
-#define PRINT_TEXT 0 
+#define PRINT_TEXT 1 
 #define PRINT_SHAPE 1
 #define PRINT_EDITTEXT 1
 // all of these to the top were partially reversed in some way,
