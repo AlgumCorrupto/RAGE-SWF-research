@@ -12,6 +12,15 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
+#ifdef _WIN32
+    #include <direct.h>
+    #define make_directory(path) _mkdir(path)
+#else
+    #include <sys/stat.h>
+    #include <sys/types.h>
+    #define make_directory(path) mkdir(path, 0777)
+#endif
+
 #pragma pack(push, 1) // All packed struct, don't let compiler align
 
 // just to make things more clear
@@ -1060,7 +1069,7 @@ int main(int argc, char* argv[]) {
     
     snprintf(outdir, sizeof(outdir), "%s", input_copy);
     
-    //mkdir(outdir, 0755);
+    make_directory(outdir);
     // clankkka over
 
     char txt_name[2048];
