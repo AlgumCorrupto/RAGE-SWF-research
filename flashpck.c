@@ -38,11 +38,11 @@
 // http://tomhulton.blogspot.com/2011/12/load-in-place-data-structures-and.html
 
 // printing swfOBJECTS config
-#define PRINT_SPRITE 1 
+#define PRINT_SPRITE 0 
 #define PRINT_BITMAP 1 // not working yet, dont set it to 1 pls
 #define PRINT_TEXT 0 
-#define PRINT_SHAPE 1
-#define PRINT_EDITTEXT 1
+#define PRINT_SHAPE 0
+#define PRINT_EDITTEXT 0
 // all of these to the top were partially reversed in some way,
 // bottom ones still a work in progress
 #define PRINT_BUTTON 0
@@ -52,73 +52,6 @@
 // write bitmap to files, must have PRINT_BITMAP on
 #define WRITE_BITMAP 0
 #define WRITE_TEXT 0
-
-// clankkka wrote this
-// this is some quick hack that a clanker wrote for making a dds image out of dxt5 raw data
-// needs to be refactored out later.
-typedef struct {
-    uint32_t dwSize;
-    uint32_t dwFlags;
-    uint32_t dwFourCC;
-    uint32_t dwRGBBitCount;
-    uint32_t dwRBitMask;
-    uint32_t dwGBitMask;
-    uint32_t dwBBitMask;
-    uint32_t dwABitMask;
-} DDS_PIXELFORMAT;
-
-typedef struct {
-    uint32_t dwSize;
-    uint32_t dwFlags;
-    uint32_t dwHeight;
-    uint32_t dwWidth;
-    uint32_t dwPitchOrLinearSize;
-    uint32_t dwDepth;
-    uint32_t dwMipMapCount;
-    uint32_t dwReserved1[11];
-
-    DDS_PIXELFORMAT ddspf;
-
-    uint32_t dwCaps;
-    uint32_t dwCaps2;
-    uint32_t dwCaps3;
-    uint32_t dwCaps4;
-    uint32_t dwReserved2;
-} DDS_HEADER;
-
-#define MAKEFOURCC(a,b,c,d) \
-    ((uint32_t)(a) | ((uint32_t)(b)<<8) | ((uint32_t)(c)<<16) | ((uint32_t)(d)<<24))
-
-void write_dds_header(FILE *f, uint32_t width, uint32_t height, uint32_t linearSize)
-{
-    fwrite("DDS ", 1, 4, f);
-
-    DDS_HEADER h;
-    memset(&h, 0, sizeof(h));
-
-    h.dwSize = 124;
-    h.dwFlags =
-        0x1 |      // DDSD_CAPS
-        0x2 |      // DDSD_HEIGHT
-        0x4 |      // DDSD_WIDTH
-        0x80000 |  // DDSD_LINEARSIZE
-        0x1000;    // DDSD_PIXELFORMAT
-
-    h.dwHeight = height;
-    h.dwWidth = width;
-    h.dwPitchOrLinearSize = linearSize;
-
-    h.ddspf.dwSize = 32;
-    h.ddspf.dwFlags = 0x4; // DDPF_FOURCC
-    h.ddspf.dwFourCC = MAKEFOURCC('D','X','T','5');
-
-    h.dwCaps = 0x1000; // DDSCAPS_TEXTURE
-
-    fwrite(&h, sizeof(h), 1, f);
-}
-// clankkka over
-
-
 
 // not sure what this struct
 typedef struct {
@@ -164,45 +97,27 @@ typedef struct {
     uint32_t unk; // quantity of frames_ptr??? who fucking knows
 } swfFILE;
 
+typedef struct {
+    uint8_t r, g, b, a;
+} RGBAColor;
+
 
 // TODO: swfBITMAP
-// i've discovered with the help of this wonderful tool called texture finder that
-// at least in the xbox version, images are stored in the DXT5 format.
 
-// taken from theikus go implementation 
+// implemented with help from ZNX
 typedef struct {
-    uint32_t unk1[2];
-
-    uint16_t width; 
-    uint16_t height; 
-    uint32_t data_size; // W x H x 4
-    uint32_t unk2;
-    uint32_t image_current_node_ptr;
-    uint32_t unk3;
-    uint8_t pad1[4];
+    uint8_t unk1[0x90];
+    uint32_t unk_ptr;
+    uint32_t ptr_to_linked_list;
+    uint8_t unk2[0x20 - 0x8];
+    RGBAColor indexed_colors[];
 } bmpInfo1;
 
 typedef struct {
     uint32_t unk1; // always 1???
     uint32_t next_image_ptr; //????? it points to another another image, like a linked list
     uint32_t ptr_to_texture; // pointer to the actual texture data
-    uint16_t maybe_bits;
-    uint16_t width;
-    uint16_t height;
-    uint8_t pad1[12];
 } BitmapLinkedListNode;
-
-typedef struct {
-    uint16_t unk1;
-    uint16_t unk2;
-    uint32_t unk3;
-    uint32_t unk4;
-    uint32_t unk5;
-    uint32_t unk6;
-    // padded until address is multiple of 0x40
-    //char pad1[];
-    //void* data;
-} bmpTexture;
 
 // a swf bitmap as you may have guessed is an object that stores an image.
 // actually it stores a pointer to a pointer to a pointer that only then
@@ -215,14 +130,6 @@ typedef struct {
     float inv_width;  // 1/width
     float inv_height; // 1/height
 } swfBITMAP;
-
-typedef struct {
-    uint8_t r, g, b, a;
-} RGBAColor;
-
-typedef struct {
-    uint8_t b, g, r, a;
-} BGRAColor;
 
 typedef struct {
     float ax, ay, bx, by, cx, cy;
@@ -1093,7 +1000,7 @@ int main(int argc, char* argv[]) {
         }
 
         switch (oti->objectType) {
-        case 1: // swfSHAPE
+        case 1:{ // swfSHAPE
             if(!PRINT_SHAPE) break;
 
             swfSHAPE* shape = (swfSHAPE*)(oti + 1);
@@ -1153,7 +1060,8 @@ int main(int argc, char* argv[]) {
                 }
             }
             break;
-        case 2: // swfSPRITE
+            }
+        case 2:{ // swfSPRITE
             if(!PRINT_SPRITE) break;
 
             swfSPRITE* sprite = (swfSPRITE*)(oti + 1);
@@ -1161,83 +1069,78 @@ int main(int argc, char* argv[]) {
             swfFRAME* frame = getPtrFromOgAddress(sprite->frames_ptr);
             list_frames(frame, sprite->frame_count32);
             break;
-        case 4: // swfBITMAP
+        }
+        case 4:{ // swfBITMAP
             if(!PRINT_BITMAP) break;
 
             swfBITMAP* bitmap = (swfBITMAP*)(oti + 1);
             printf("w: %d, h: %d\n", bitmap->width, bitmap->height);
             printf("info 1... 0x%.8x\n", bitmap->ptr_to_info1);
             bmpInfo1* info1 = getPtrFromOgAddress(bitmap->ptr_to_info1);
-            printf("info 2... 0x%.8x\n", info1->image_current_node_ptr);
-            BitmapLinkedListNode* info2 = getPtrFromOgAddress(info1->image_current_node_ptr);
-            printf("info 3... 0x%.8x\n", info2->ptr_to_texture);
-            bmpTexture* info3 = getPtrFromOgAddress(info2->ptr_to_texture);
-            uint32_t end = info2->ptr_to_texture + sizeof(bmpTexture);
-            printf("%.8x end", end);
-            // getting the closest biggest address multiple of 0x80
-            uint32_t multiple = 0x80;
-            uint32_t offset = (multiple - (end % multiple)) % multiple;
-            uint32_t data_address = offset + end;
-            uint8_t* value = getPtrFromOgAddress(data_address);
-            // I'm not sure what is going on but few images seems to be corrupted.
-            // maybe its the gpu swizzling that clankers have been talking about?
-            if(*value == 0xCD) {
-                printf("=================\nWOOOOOPS LOOKS LIKE YOU ARE FUCKING WRONG\n==============\n");
-            }
-            while(*value == 0xCD) {
-                ++value;
-                data_address++;
-            }
+            printf("info 2... 0x%.8x\n", info1->ptr_to_linked_list);
+            BitmapLinkedListNode* info2 = getPtrFromOgAddress(info1->ptr_to_linked_list);
+            printf("image data at 0x%.8x\n", info2->ptr_to_texture);
+            uint8_t* tex = getPtrFromOgAddress(info2->ptr_to_texture);
+            printf("color table at 0x%.8x\n", getOgAddressFromPointer(info1->indexed_colors));
 
-            uint32_t image_end = data_address + (bitmap->width * bitmap->height);
-            printf("Image data localized at 0x%.8x (begin), 0x%.8x (end)\n", data_address, image_end);
 
-            // if i care to write the bitmap, for each bitmap found, write it to disk
-            if(WRITE_BITMAP) {
-                // clankkka wrote this
-                uint32_t compressed_size = info1->width*info1->height;   // Use this instead of width*height
-                uint8_t *image_data = getPtrFromOgAddress(data_address);
+            size_t num_pixels = bitmap->width * bitmap->height;
 
-                // Write raw DXT5 blocks
-                char raw_name[1024];
-                snprintf(raw_name, sizeof(raw_name), "%s/%d.raw", outdir, i);
+            RGBAColor* colors = malloc(num_pixels * sizeof(RGBAColor));
+            if(!WRITE_BITMAP) break;
 
-                char dds_name[1024];
-                snprintf(dds_name, sizeof(dds_name), "%s/%d.dds", outdir, i);
-
-                FILE *dds = fopen(dds_name, "wb");
-
-                write_dds_header(dds,
-                                 bitmap->width,
-                                 bitmap->height,
-                                 compressed_size);
+            for (size_t pos = 0; pos < (num_pixels + 1) / 2; pos++) {
             
-                fwrite(image_data, 1, compressed_size, dds);
-                fclose(dds);
+                uint8_t byte = tex[pos];
+            
+                uint8_t idx0 = byte & 0x0F;
+                uint8_t idx1 = (byte >> 4) & 0x0F;
+            
+                size_t p0 = pos * 2;
+                size_t p1 = p0 + 1;
+            
+                colors[p0] = info1->indexed_colors[idx0];
+            
+                if (p1 < num_pixels) {
+                    colors[p1] = info1->indexed_colors[idx1];
+                }
+            }
+            char raw_name[1024];
+            char cmd[2048];
 
-                // Convert to PNG
-                char png_name[1024];
-                snprintf(png_name, sizeof(png_name), "%s/%d.png", outdir, i);
+            snprintf(raw_name, sizeof(raw_name), "%s/%d.raw", outdir, i);
 
-                char command[4096];
-                snprintf(command, sizeof(command),
-                    "ffmpeg -loglevel error -y "
-                    "-i \"%s\" "
-                    "\"%s\"",
-                    dds_name,
-                    png_name);
-
-                system(command);
-
-                // Remove temporary raw file
-                remove(dds_name);
-                // clankkka over
+            FILE *f = fopen(raw_name, "wb");
+            if (!f) {
+                perror("fopen");
+                continue;
             }
 
+            fwrite(colors, sizeof(RGBAColor), num_pixels, f);
+            fclose(f);
+
+            snprintf(cmd, sizeof(cmd),
+                "ffmpeg -y "
+                "-f rawvideo "
+                "-pix_fmt rgba "
+                "-s %dx%d "
+                "-i %s "
+                "-frames:v 1 "
+                "%s/%zu.png",
+                bitmap->width,
+                bitmap->height,
+                raw_name,
+                outdir,
+                i
+            );
+            system(cmd);
+            free(colors);
             break;
+        }
+
             case 5: //swfFONT
                 break;
-            case 6: //swfTEXT
+            case 6:{ //swfTEXT
                 if(!PRINT_TEXT) break;
                 swfTEXT* text_obj = (swfTEXT*)(oti + 1);
                 //printf("text record at %.8x\n", text_obj->text_records_ptr);
@@ -1298,7 +1201,8 @@ int main(int argc, char* argv[]) {
                 }
             }
             break;
-        case 7: //swfEDITTEXT
+        }
+        case 7: { //swfEDITTEXT
             if(!PRINT_EDITTEXT) break;
 
             swfEDITTEXT* editt = (swfEDITTEXT*)(oti + 1);
@@ -1306,6 +1210,7 @@ int main(int argc, char* argv[]) {
             printf("0x%.8x ", getOgAddressFromPointer(&editt->color));
             print_color(editt->color);
             break;
+        }
         default:
             break;
         }
@@ -1313,4 +1218,5 @@ int main(int argc, char* argv[]) {
 
     fclose(txt_file);
     free(pckData);
+    return 0;
 }
