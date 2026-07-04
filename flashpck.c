@@ -50,7 +50,7 @@
 
 #define PRINT_CODE 0 // must have PRINT_SPRITE on
 // write bitmap to files, must have PRINT_BITMAP on
-#define WRITE_BITMAP 0
+#define WRITE_BITMAP 1
 #define WRITE_TEXT 0
 
 // not sure what this struct
@@ -104,19 +104,30 @@ typedef struct {
 
 // TODO: swfBITMAP
 
+typedef struct {
+    uint16_t unk3; // always 1
+    uint16_t color_count;
+    uint8_t unk2[0x10 - 0x4];
+    RGBAColor indexed_colors[];
+} bmpIndexedColors;
+
 // implemented with help from ZNX
 typedef struct {
     uint8_t unk1[0x90];
-    uint32_t unk_ptr;
+    uint32_t indexed_colors_ptr;
     uint32_t ptr_to_linked_list;
-    uint8_t unk2[0x20 - 0x8];
-    RGBAColor indexed_colors[];
+    uint8_t unk2[0x10 - 0x8];
 } bmpInfo1;
 
 typedef struct {
     uint32_t unk1; // always 1???
     uint32_t next_image_ptr; //????? it points to another another image, like a linked list
     uint32_t ptr_to_texture; // pointer to the actual texture data
+    uint8_t pad1[0x4 + 0x8 + 0x10]; // 0xCDCDCDCD...
+    uint16_t unk2;
+    uint16_t unk3;
+    uint16_t width;
+    uint16_t height;
 } BitmapLinkedListNode;
 
 // a swf bitmap as you may have guessed is an object that stores an image.
@@ -917,6 +928,136 @@ void list_frames(swfFRAME* frame, uint32_t count) {
     }
 }
 
+void extract_4bpp(bmpInfo1* info, RGBAColor** colors) {
+    BitmapLinkedListNode* data = (BitmapLinkedListNode*) getPtrFromOgAddress(info->ptr_to_linked_list);
+    uint32_t num_pixels = data->height * data->width;
+    printf("2222 h: %d, w: %d", data->height, data->width);
+    bmpIndexedColors* idx_colors = (bmpIndexedColors*) getPtrFromOgAddress(info->indexed_colors_ptr);
+    uint8_t* tex = getPtrFromOgAddress(data->ptr_to_texture);
+    *colors = malloc(num_pixels * sizeof(RGBAColor));
+    // this method only extracts images encoded with
+    // as 4 bits per pixel indexed image
+    // and i managed to successfully extract a single image
+    // from legal.pck this way
+    for (size_t pos = 0; pos < (num_pixels + 1) / 2; pos++) {
+    
+        uint8_t byte = tex[pos];
+    
+        uint8_t idx0 = byte & 0x0F;
+        uint8_t idx1 = (byte >> 4) & 0x0F;
+    
+        size_t p0 = pos * 2;
+        size_t p1 = p0 + 1;
+    
+        (*colors)[p0] = idx_colors->indexed_colors[idx0];
+
+        if (p1 < num_pixels) {
+            (*colors)[p1] = idx_colors->indexed_colors[idx1];
+        }
+    }
+}
+
+static void ps2_convert_palette32(const RGBAColor *src,
+                                  RGBAColor *dst,
+                                  size_t color_count)
+{
+    const int stripes = 2;
+    const int colors  = 8;
+    const int blocks  = 2;
+
+    size_t index = 0;
+    size_t parts = color_count / 32;
+
+    for (size_t part = 0; part < parts; part++) {
+        for (int block = 0; block < blocks; block++) {
+            for (int stripe = 0; stripe < stripes; stripe++) {
+                for (int color = 0; color < colors; color++) {
+
+                    size_t palette_index =
+                        part * 32 +
+                        block * 8 +
+                        stripe * 16 +
+                        color;
+
+                    dst[index++] = src[palette_index];
+                }
+            }
+        }
+    }
+}
+
+static void unswizzle8(uint8_t *dst,
+                       const uint8_t *src,
+                       int width,
+                       int height)
+{
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+
+            int block_location =
+                (y & (~0xF)) * width +
+                (x & (~0xF)) * 2;
+
+            int swap_selector =
+                (((y + 2) >> 2) & 1) * 4;
+
+            int pos_y =
+                (((y & (~3)) >> 1) + (y & 1)) & 7;
+
+            int column_location =
+                pos_y * width * 2 +
+                ((x + swap_selector) & 7) * 4;
+
+            int byte_num =
+                ((y >> 1) & 1) +
+                ((x >> 2) & 2);
+
+            dst[y * width + x] =
+                src[block_location + column_location + byte_num];
+        }
+    }
+}
+
+void extract_8bpp(bmpInfo1 *info, RGBAColor **colors)
+{
+    BitmapLinkedListNode *data =
+        getPtrFromOgAddress(info->ptr_to_linked_list);
+
+    bmpIndexedColors *idx_colors =
+        getPtrFromOgAddress(info->indexed_colors_ptr);
+
+    size_t width  = data->width;
+    size_t height = data->height;
+    size_t num_pixels = width * height;
+
+    uint8_t *swizzled =
+        getPtrFromOgAddress(data->ptr_to_texture);
+
+    uint8_t *indices = malloc(num_pixels);
+    *colors = malloc(num_pixels * sizeof(RGBAColor));
+
+    if (!indices || !*colors) {
+        free(indices);
+        free(*colors);
+        *colors = NULL;
+        return;
+    }
+
+    /* Unswizzle the texels */
+    unswizzle8(indices, swizzled, width, height);
+
+    /* Unswizzle the 256-color CLUT */
+    RGBAColor palette[256];
+    ps2_convert_palette32(idx_colors->indexed_colors, palette, 256);
+
+    /* Apply palette */
+    for (size_t i = 0; i < num_pixels; i++) {
+        (*colors)[i] = palette[indices[i]];
+    }
+
+    free(indices);
+}
+
 
 int main(int argc, char* argv[]) {
     void *pckData;
@@ -1081,29 +1222,27 @@ int main(int argc, char* argv[]) {
             BitmapLinkedListNode* info2 = getPtrFromOgAddress(info1->ptr_to_linked_list);
             printf("image data at 0x%.8x\n", info2->ptr_to_texture);
             uint8_t* tex = getPtrFromOgAddress(info2->ptr_to_texture);
-            printf("color table at 0x%.8x\n", getOgAddressFromPointer(info1->indexed_colors));
-
+            bmpIndexedColors* idx_colors = getPtrFromOgAddress(info1->indexed_colors_ptr);
+            printf("color table at 0x%.8x\n", getOgAddressFromPointer(idx_colors->indexed_colors));
 
             size_t num_pixels = bitmap->width * bitmap->height;
 
-            RGBAColor* colors = malloc(num_pixels * sizeof(RGBAColor));
             if(!WRITE_BITMAP) break;
 
-            for (size_t pos = 0; pos < (num_pixels + 1) / 2; pos++) {
-            
-                uint8_t byte = tex[pos];
-            
-                uint8_t idx0 = byte & 0x0F;
-                uint8_t idx1 = (byte >> 4) & 0x0F;
-            
-                size_t p0 = pos * 2;
-                size_t p1 = p0 + 1;
-            
-                colors[p0] = info1->indexed_colors[idx0];
-            
-                if (p1 < num_pixels) {
-                    colors[p1] = info1->indexed_colors[idx1];
-                }
+            RGBAColor* colors = NULL;
+
+            // this is a heuristic based on the quantity of colors
+            // of the palette,
+            // i've found that if the color count is 256, it uses
+            // 8bpp with contents and palette swizzled
+            // if color count is 16, it uses 4bpp and nothing is swizzled
+            if(idx_colors->color_count == 256)
+                extract_8bpp(info1, &colors);
+            else if (idx_colors->color_count == 16)
+                extract_4bpp(info1, &colors);
+            else {
+                printf("unknown shit %d\n", idx_colors->color_count);
+                exit(1);
             }
             char raw_name[1024];
             char cmd[2048];
@@ -1120,7 +1259,7 @@ int main(int argc, char* argv[]) {
             fclose(f);
 
             snprintf(cmd, sizeof(cmd),
-                "ffmpeg -y "
+                "ffmpeg -loglevel error -y "
                 "-f rawvideo "
                 "-pix_fmt rgba "
                 "-s %dx%d "
@@ -1134,6 +1273,7 @@ int main(int argc, char* argv[]) {
                 i
             );
             system(cmd);
+            remove(raw_name);
             free(colors);
             break;
         }
