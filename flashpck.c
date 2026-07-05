@@ -112,12 +112,46 @@ typedef struct {
 } bmpIndexedColors;
 
 // implemented with help from ZNX
+// this data is the middlemen between the
+// swfBITMAP and the actual ps2Texture,
+// it has a bunch of unknown fields and
+// it holds a pointer to the ps2texture data
+// and the index colors array
 typedef struct {
-    uint8_t unk1[0x90];
+    uint8_t  unk1[0x80];
+
+    uint8_t  unk2[0x8];
+    uint16_t width;
+    uint16_t height;
+    uint16_t unk3;
+    uint16_t unk4;
+
+    // 0x90
     uint32_t indexed_colors_ptr;
+
+    // 0x94
     uint32_t ptr_to_linked_list;
-    uint8_t unk2[0x10 - 0x8];
+
+    // 0x98
+    uint8_t  unk5[0x08];
+
+    // 0xA0
+    uint16_t unk6;
+
+    // 0xA2
+    uint16_t color_count;          // 1 = 16 colors, 4 = 256 colors
+    uint8_t unk7;
+    uint8_t pad1[3];
+    uint16_t swizzled; // sems to be 4 if texture is swizzled
+    uint16_t unk8;
+    uint8_t pad2[4];
 } bmpInfo1;
+
+typedef enum {
+    BPP4_UNSWIZZLED = 0x6,
+    BPP8_INDEX_SWIZZLED_BUT_TEXTURE_NOT = 0x5,
+    BPP8_BOTH_SWIZZLED = 0x1,
+} ps2TextureType;
 
 typedef struct {
     uint32_t unk1; // always 1???
@@ -128,7 +162,14 @@ typedef struct {
     uint16_t unk3;
     uint16_t width;
     uint16_t height;
-} BitmapLinkedListNode;
+    uint8_t texture_type; // ps2TextureType enum
+    uint8_t unk4;
+    uint8_t unk5;
+    uint8_t flag1;
+    uint16_t unk6;
+    uint8_t pad2[0x4];
+    uint8_t unk7[0x8];
+} ps2Texture;
 
 // a swf bitmap as you may have guessed is an object that stores an image.
 // actually it stores a pointer to a pointer to a pointer that only then
@@ -929,9 +970,8 @@ void list_frames(swfFRAME* frame, uint32_t count) {
 }
 
 void extract_4bpp(bmpInfo1* info, RGBAColor** colors) {
-    BitmapLinkedListNode* data = (BitmapLinkedListNode*) getPtrFromOgAddress(info->ptr_to_linked_list);
+    ps2Texture* data = (ps2Texture*) getPtrFromOgAddress(info->ptr_to_linked_list);
     uint32_t num_pixels = data->height * data->width;
-    printf("2222 h: %d, w: %d", data->height, data->width);
     bmpIndexedColors* idx_colors = (bmpIndexedColors*) getPtrFromOgAddress(info->indexed_colors_ptr);
     uint8_t* tex = getPtrFromOgAddress(data->ptr_to_texture);
     *colors = malloc(num_pixels * sizeof(RGBAColor));
@@ -1018,9 +1058,9 @@ static void unswizzle8(uint8_t *dst,
     }
 }
 
-void extract_8bpp(bmpInfo1 *info, RGBAColor **colors)
+void extract_8bpp(bmpInfo1 *info, RGBAColor **colors, uint8_t swizzle)
 {
-    BitmapLinkedListNode *data =
+    ps2Texture *data =
         getPtrFromOgAddress(info->ptr_to_linked_list);
 
     bmpIndexedColors *idx_colors =
@@ -1035,16 +1075,19 @@ void extract_8bpp(bmpInfo1 *info, RGBAColor **colors)
 
     uint8_t *indices = malloc(num_pixels);
     *colors = malloc(num_pixels * sizeof(RGBAColor));
-
+    
     if (!indices || !*colors) {
         free(indices);
         free(*colors);
         *colors = NULL;
         return;
     }
-
-    /* Unswizzle the texels */
-    unswizzle8(indices, swizzled, width, height);
+    
+    if (swizzle) {
+        unswizzle8(indices, swizzled, width, height);
+    } else {
+        memcpy(indices, swizzled, num_pixels);
+    }
 
     /* Unswizzle the 256-color CLUT */
     RGBAColor palette[256];
@@ -1219,7 +1262,7 @@ int main(int argc, char* argv[]) {
             printf("info 1... 0x%.8x\n", bitmap->ptr_to_info1);
             bmpInfo1* info1 = getPtrFromOgAddress(bitmap->ptr_to_info1);
             printf("info 2... 0x%.8x\n", info1->ptr_to_linked_list);
-            BitmapLinkedListNode* info2 = getPtrFromOgAddress(info1->ptr_to_linked_list);
+            ps2Texture* info2 = getPtrFromOgAddress(info1->ptr_to_linked_list);
             printf("image data at 0x%.8x\n", info2->ptr_to_texture);
             uint8_t* tex = getPtrFromOgAddress(info2->ptr_to_texture);
             bmpIndexedColors* idx_colors = getPtrFromOgAddress(info1->indexed_colors_ptr);
@@ -1236,15 +1279,27 @@ int main(int argc, char* argv[]) {
             // i've found that if the color count is 256, it uses
             // 8bpp with contents and palette swizzled
             // if color count is 16, it uses 4bpp and nothing is swizzled
-            if(idx_colors->color_count == 256)
-                extract_8bpp(info1, &colors);
-            else if (idx_colors->color_count == 16)
-                extract_4bpp(info1, &colors);
-            else {
-                printf("unknown shit %d\n", idx_colors->color_count);
-                exit(1);
+            // yeah that heuristic is bad
+            printf("index swizzling variable: %.4x\n", info1->swizzled);
+            printf("texture swizzling variable: %.4x\n", info2->texture_type);
+            //if(idx_colors->color_count == 256) {
+            switch(info2->texture_type) {
+                case BPP8_BOTH_SWIZZLED:
+                    extract_8bpp(info1, &colors, 1);
+                    break;
+                case BPP4_UNSWIZZLED:
+                    extract_4bpp(info1, &colors);
+                    break;
+                case BPP8_INDEX_SWIZZLED_BUT_TEXTURE_NOT:
+                    extract_8bpp(info1, &colors, 0);
+                    break;
+                default:
+                    printf("unknown texture format\n");
+                    exit(1);
+                    break;
             }
-            // hack
+
+            // hack to make the texture opaque
             for(int pos = 0; pos < num_pixels; pos++) {
                 if(colors[pos].a != 0)
                     colors[pos].a = 255;
