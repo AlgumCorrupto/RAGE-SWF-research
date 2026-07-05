@@ -12,6 +12,9 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 // cross platform mkdir
 #ifdef _WIN32
     #include <direct.h>
@@ -1274,15 +1277,6 @@ int main(int argc, char* argv[]) {
 
             RGBAColor* colors = NULL;
 
-            // this is a heuristic based on the quantity of colors
-            // of the palette,
-            // i've found that if the color count is 256, it uses
-            // 8bpp with contents and palette swizzled
-            // if color count is 16, it uses 4bpp and nothing is swizzled
-            // yeah that heuristic is bad
-            printf("index swizzling variable: %.4x\n", info1->swizzled);
-            printf("texture swizzling variable: %.4x\n", info2->texture_type);
-            //if(idx_colors->color_count == 256) {
             switch(info2->texture_type) {
                 case BPP8_BOTH_SWIZZLED:
                     extract_8bpp(info1, &colors, 1);
@@ -1304,36 +1298,11 @@ int main(int argc, char* argv[]) {
                 if(colors[pos].a != 0)
                     colors[pos].a = 255;
             }
-            char raw_name[1024];
-            char cmd[2048];
+            char image_name[1024];
 
-            snprintf(raw_name, sizeof(raw_name), "%s/%d.raw", outdir, i);
+            snprintf(image_name, sizeof(image_name), "%s/%d.png", outdir, i);
 
-            FILE *f = fopen(raw_name, "wb");
-            if (!f) {
-                perror("fopen");
-                continue;
-            }
-
-            fwrite(colors, sizeof(RGBAColor), num_pixels, f);
-            fclose(f);
-
-            snprintf(cmd, sizeof(cmd),
-                "ffmpeg -loglevel error -y "
-                "-f rawvideo "
-                "-pix_fmt rgba "
-                "-s %dx%d "
-                "-i %s "
-                "-frames:v 1 "
-                "%s/%zu.png",
-                bitmap->width,
-                bitmap->height,
-                raw_name,
-                outdir,
-                i
-            );
-            system(cmd);
-            remove(raw_name);
+            stbi_write_bmp(image_name, info1->width, info1->height, 4, colors);
             free(colors);
             break;
         }
