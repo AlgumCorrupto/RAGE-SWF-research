@@ -6,3 +6,6 @@
 !.git
 !stb_ds.h
 !stb_image_write.h
+!examples/
+!examples/*
+!flashpck.h
