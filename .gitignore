@@ -8,4 +8,5 @@
 !stb_image_write.h
 !examples/
 !examples/*
+!examples/*/*
 !flashpck.h
