@@ -1,6 +1,9 @@
 // this one is for the xbox files
 // the PS2 version is a WIP
 
+// for now this file is uncompilable because of the 
+// refactor changes in the ps2 version
+
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,8 +13,6 @@
 #include <libgen.h>
 #include <string.h>
 
-#define STB_DS_IMPLEMENTATION
-#include "stb_ds.h"
 
 #pragma pack(push, 1) // All packed struct, don't let compiler align
 
@@ -29,8 +30,8 @@
 // http://tomhulton.blogspot.com/2011/12/load-in-place-data-structures-and.html
 
 // printing swfOBJECTS config
-#define PRINT_SPRITE 1
-#define PRINT_BITMAP 0
+#define PRINT_SPRITE 0
+#define PRINT_BITMAP 1
 #define PRINT_TEXT 0
 #define PRINT_SHAPE 0
 #define PRINT_EDITTEXT 0
@@ -41,7 +42,7 @@
 
 #define PRINT_CODE 0  // must have PRINT_SPRITE on
 // write bitmap to files, must have PRINT_BITMAP on
-#define WRITE_BITMAP 0
+#define WRITE_BITMAP 1
 #define WRITE_TEXT 0
 
 // clankkka wrote this
@@ -181,7 +182,7 @@ typedef struct {
     uint16_t width;
     uint16_t height;
     uint8_t pad1[12];
-} BitmapLinkedListNode;
+} ps2Texture;
 
 typedef struct {
     uint16_t unk1;
@@ -628,7 +629,7 @@ uint32_t getAbsoluteAddrFromOgAddress(uint32_t base, uint32_t ogAddr) {
     return base + relative;
 }
 
-RGBAColor add_color(RGBAColor c1, RGBAColor c2) {
+RGBAColor RGBA_add_color(RGBAColor c1, RGBAColor c2) {
     return (RGBAColor){
         .a = c1.a + c2.a,
         .b = c1.b + c2.b,
@@ -637,7 +638,7 @@ RGBAColor add_color(RGBAColor c1, RGBAColor c2) {
     };
 }
 
-RGBAColor mult_color(RGBAColor c1, RGBAColor c2) {
+RGBAColor RGBA_mult_color(RGBAColor c1, RGBAColor c2) {
     return (RGBAColor){
         .a = c1.a * c2.a,
         .b = c1.b * c2.b,
@@ -648,7 +649,7 @@ RGBAColor mult_color(RGBAColor c1, RGBAColor c2) {
 
 RGBAColor xform_color(RGBAColor c, swfCXFORMWITHAPLHA x) {
 
-    return add_color(x.add_term, mult_color(c, x.mult_term));
+    return RGBA_add_color(x.add_term, RGBA_mult_color(c, x.mult_term));
 }
 
 void print_color(RGBAColor c) {
@@ -1137,7 +1138,7 @@ int main(int argc, char* argv[]) {
             printf("info 1... 0x%.8x\n", bitmap->ptr_to_info1);
             bmpInfo1* info1 = getPtrFromOgAddress(bitmap->ptr_to_info1);
             printf("info 2... 0x%.8x\n", info1->image_current_node_ptr);
-            BitmapLinkedListNode* info2 = getPtrFromOgAddress(info1->image_current_node_ptr);
+            ps2Texture* info2 = getPtrFromOgAddress(info1->image_current_node_ptr);
             printf("info 3... 0x%.8x\n", info2->ptr_to_texture);
             bmpTexture* info3 = getPtrFromOgAddress(info2->ptr_to_texture);
             uint32_t end = info2->ptr_to_texture + sizeof(bmpTexture);

@@ -9,23 +9,9 @@
 //#include <libgen.h>
 #include <string.h>
 
-#define STB_DS_IMPLEMENTATION
-#include "stb_ds.h"
-
 
 #include "flashpck.h"
 
-// cross platform mkdir
-#ifdef _WIN32
-    #include <direct.h>
-    #define make_directory(path) _mkdir(path)
-#else
-    #include <sys/stat.h>
-    #include <sys/types.h>
-    #define make_directory(path) mkdir(path, 0777)
-#endif
-
-#pragma pack(push, 1) // All packed struct, don't let compiler align
 
 // just to make things more clear
 // when i refer to "character id", "object id" or whatever id,
@@ -48,11 +34,6 @@ char swfObjectTypesString[10][16] = {
 char swfCmdTypesString[5][32] = {
     "swfPlaceObject2", "swfClipEvent", "swfRemoveObject2", "swfCMD_doAction", "swfDoInitAction" // not sure about the last one
 };
-
-
-//void set_og_base_address(PckData* data, uint32_t base_addr) {
-//    data->og_base_address = base_addr;
-//}
 
 void *pckData_get_ptr_from_og(PckData *data, uint32_t og_addr)
 {
