@@ -1,6 +1,25 @@
 #pragma once
 
 #include <stdlib.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// this is a utility
+// structure that you will be using
+// 90% of the time when using the API
+// for navigating around the file
+// with the pckData* functions
+// this is not stored in the actual file
+// just an utility struct
+typedef struct {
+    uint32_t og_base_address;
+    uint32_t data_size;
+    void* actual_data;
+} PckData;
+
 
 // just to make things more clear
 // when i refer to "character id", "object id" or whatever id,
@@ -15,11 +34,7 @@
 // this type of serialization is explained in this article
 // http://tomhulton.blogspot.com/2011/12/load-in-place-data-structures-and.html
 #pragma pack(push, 1) // All packed struct, don't let compiler align
-typedef struct {
-    uint32_t og_base_address;
-    uint32_t data_size;
-    void* actual_data;
-} PckData;
+
 
 // not sure what this struct
 typedef struct {
@@ -34,6 +49,9 @@ typedef struct {
     uint32_t dataSize;
 } PckFileHeader;
 
+// so every structure inherited from
+// swfOBJECT has this same exact first
+// fields defined in swfOBJECT_header
 typedef struct {
     uint8_t objectType; // swfOBJECT type atau 0 pada awal
     char padding1[3]; // 0xcdcdcd padding
@@ -46,9 +64,6 @@ typedef struct {
 // this is always the first structure that
 // appears in the xbox version 
 // after 0x80 bytes padding of the header
-// the first 0x8 bytes is skipped
-// then the contents of this structure layout is read
-// thiekus wrote it this way, i will refactor it later
 typedef struct {
     swfOBJECT_header header;
     uint16_t frame_count; // Selalu 1
@@ -66,12 +81,12 @@ typedef struct {
     uint32_t unk; // quantity of frames_ptr??? who fucking knows
 } swfFILE;
 
+// swfBITMAP structs
+
 typedef struct {
     uint8_t r, g, b, a;
 } RGBAColor;
 
-
-// TODO: swfBITMAP
 
 typedef struct {
     uint16_t unk3; // always 1
@@ -141,7 +156,7 @@ typedef struct {
 } ps2Texture;
 
 // a swf bitmap as you may have guessed is an object that stores an image.
-// actually it stores a pointer to a pointer to a pointer that only then
+// actually it stores a pointer (bmpInfo1) to a pointer (ps2Texture) to a pointer that only then
 // contains the image data.
 typedef struct {
 
@@ -157,6 +172,8 @@ typedef struct {
 typedef struct {
     float ax, ay, bx, by, cx, cy;
 } swfMATRIX;
+
+// swfTEXT structs
 
 // the text record types
 typedef enum {
@@ -210,6 +227,8 @@ typedef struct {
     uint32_t text_records_ptr;
 } swfTEXT;
 
+// swfFONT
+
 // this represents a font, it can be a vector font or a bitmap font, not fully understood by me yet - AlgumCorrupto
 typedef struct {
     swfOBJECT_header header;
@@ -259,11 +278,19 @@ typedef struct {
     uint8_t flag2; // used by swfCMD_removeObject2 (maybe its the ID of the object to be removed or depth? Who knows)
     uint32_t next_CMD; // next command in the linked list
     uint32_t vtable;
-} swfCMDHeader;
+} swfCMD_header;
+
+typedef enum {
+    CMD_PLACEOBJECT2 = 0,
+    CMD_CLIPEVENT = 1,
+    CMD_REMOVEOBJECT = 2,
+    CMD_DOACTION = 3,
+} swfCMD_types;
 
 // command for adding stuff in the screen
 typedef struct {
     // insert swfCMD_Header here
+    swfCMD_header header;
     uint16_t depth; 
     uint16_t character_id; // if character is 0xFFFF, that means a eaew character needs to be created
     uint32_t packed_matrix_ptr; 
@@ -279,6 +306,8 @@ typedef struct {
 // like moving the mouse cursor or whatever
 typedef struct {
     // insert swfCMD_Header here
+
+    swfCMD_header header;
     uint16_t depth; 
     uint16_t character_id; // if character is 0xFFFF, that means a eaew character needs to be created
     uint32_t packed_matrix_ptr; 
@@ -291,13 +320,14 @@ typedef struct {
 
 // command for you guessed it, removing stuff
 typedef struct {
+    swfCMD_header header;
     // insert swfCMD_Header here
     // this command does not seem to be bigger
 } swfCMD_removeObject2;
 
 // command for executing code
 typedef struct {
-    // insert swfCMD_Header here
+    swfCMD_header header;
     uint32_t avm1_code_ptr; // points to the actual start of the code stream, no intermediate pointers like swfClipEvent
 } swfCMD_doAction;
 
@@ -321,6 +351,8 @@ typedef struct {
     uint16_t x;
     uint16_t y;
 } swfPoint;
+
+// swfSHAPE utility classes
 
 // a swfSHAPE can sometimes have a gradient
 typedef struct {
@@ -494,7 +526,6 @@ typedef enum {
     SP_CONSTANT16, // constant pool index for indicies >= 256 (ui16)
 } swfAction_StackPush_Types;
 
-
 typedef enum {
     OBJ_FILE  = 0,
     OBJ_SHAPE = 1,
@@ -539,9 +570,11 @@ typedef struct {
 #pragma pack(pop) // End packed struct
 
 extern char swfObjectTypesString[10][16];
-
 extern char swfCmdTypesString[5][32];
 
+// this one is your bread and butter for navigating around the file
+// for some examples on how to use these functions
+// head over to the examples
 void *pckData_get_ptr_from_og(PckData *data, uint32_t og_addr);
 uint32_t pckData_get_og_from_ptr(PckData* data, void* ptr);
 uint32_t pckData_get_rel_from_og(PckData* data, uint32_t og_addr);
@@ -555,3 +588,11 @@ RGBAColor xform_color(RGBAColor c1, swfCXFORMWITHAPLHA x);
 
 void swfBITMAP_extract_4bpp(PckData* pck, bmpInfo1* info, RGBAColor** colors);
 void swfBITMAP_extract_8bpp(PckData* pck, bmpInfo1 *info, RGBAColor **colors, uint8_t swizzle);
+
+uint32_t avm1_size(AVM1Bytecode* code);
+
+swfFRAME *swfSPRITE_getframe(PckData *data, uint32_t frames_og, uint32_t position);
+
+#ifdef __cplusplus
+}
+#endif

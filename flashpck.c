@@ -49,8 +49,7 @@ uint32_t pckData_get_rel_from_og(PckData* data, uint32_t og_addr) {
     return og_addr - data->og_base_address;
 } 
 
-swfOBJECT_header *pckData_get_obj(PckData *data, int pos)
-{
+swfOBJECT_header *pckData_get_obj(PckData *data, int pos) {
     swfFILE *file = data->actual_data;
 
     if (pos < 1 || pos >= file->objectCount)
@@ -146,6 +145,28 @@ void swfBITMAP_extract_4bpp(PckData* pck, bmpInfo1* info, RGBAColor** colors) {
             (*colors)[p1] = idx_colors->indexed_colors[idx1];
         }
     }
+}
+
+uint32_t avm1_size(AVM1Bytecode *code) {
+    // Skip initial uint16
+    uint8_t *opcode = (uint8_t *)(code + 1);
+
+    while (1)
+    {
+        if (*opcode == 0) { // end action
+            opcode++;
+            break;
+        }
+        if (*opcode >= 0x80) { // actions with data
+            uint16_t length = *(uint16_t *)(opcode + 1);
+            opcode += 3 + length;
+        }
+        else { // actions without data
+            opcode++;
+        }
+    }
+
+    return (uint32_t)(opcode - (uint8_t *)code);
 }
 
 static void ps2_convert_palette32(const RGBAColor *src,
@@ -254,4 +275,7 @@ void swfBITMAP_extract_8bpp(PckData* pck, bmpInfo1 *info, RGBAColor **colors, ui
     free(indices);
 }
 
-
+swfFRAME *swfSPRITE_getframe(PckData *data, uint32_t frames_og, uint32_t position) {
+    swfFRAME *frames = pckData_get_ptr_from_og(data, frames_og);
+    return &frames[position];
+}

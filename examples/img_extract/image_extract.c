@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) {
             case OBJ_BITMAP:
             char image_path[1024];
             snprintf(image_path, sizeof(image_path), "%s/%d.png", outdir, obj_p); 
-            printf("Writing image %d\n", obj_p);
+            printf("Writing image %d\n 0x%.8x\n", obj_p, pckData_get_og_from_ptr(&pck, info));
             to_png(&pck, (swfBITMAP*)info, image_path);
             break;
         }
