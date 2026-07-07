@@ -549,10 +549,9 @@ swfOBJECT_header *pckData_get_obj(PckData *data, int pos);
 int pckData_init(PckData* data, char* filename);
 void pckData_free(PckData* data);
 
-
 RGBAColor add_color(RGBAColor c1, RGBAColor c2);
 RGBAColor mult_color(RGBAColor c1, RGBAColor c2);
 RGBAColor xform_color(RGBAColor c1, swfCXFORMWITHAPLHA x);
-void print_color(RGBAColor c);
 
-void swfBITMAP_extract(PckData* pck, swfBITMAP* bmp, char* filepath);
+void swfBITMAP_extract_4bpp(PckData* pck, bmpInfo1* info, RGBAColor** colors);
+void swfBITMAP_extract_8bpp(PckData* pck, bmpInfo1 *info, RGBAColor **colors, uint8_t swizzle);
