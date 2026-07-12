@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
         int otIndex = info->objectType;
 
         switch(info->objectType) {
-            case OBJ_BITMAP:
+            case SWF_OBJ_BITMAP:
             char image_path[1024];
             snprintf(image_path, sizeof(image_path), "%s/%d.png", outdir, obj_p); 
             printf("Writing image %d\n 0x%.8x\n", obj_p, pckData_get_og_from_ptr(&pck, info));

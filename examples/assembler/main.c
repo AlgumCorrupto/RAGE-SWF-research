@@ -364,7 +364,7 @@ int main(int argc, char** argv) {
     for(int o_i = 1; o_i < file->objectCount; o_i++) {
         swfOBJECT_header* header =  pckData_get_obj(&pck, o_i);
         switch(header->objectType) {
-            case OBJ_SPRITE:
+            case SWF_OBJ_SPRITE:
                 swfSPRITE* sprite = (swfSPRITE*)header;
                 look_for_code(&pck, sprite->frames_ptr, sprite->frame_count32, o_i);
                 break;

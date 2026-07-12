@@ -528,14 +528,14 @@ typedef enum {
 } swfAction_StackPush_Types;
 
 typedef enum {
-    OBJ_FILE  = 0,
-    OBJ_SHAPE = 1,
-    OBJ_SPRITE = 2,
-    OBJ_BUTTON = 3,
-    OBJ_BITMAP = 4,
-    OBJ_FONT = 5,
-    OBJ_TEXT = 6,
-    OBJ_EDITTEXT = 7
+    SWF_OBJ_FILE  = 0,
+    SWF_OBJ_SHAPE = 1,
+    SWF_OBJ_SPRITE = 2,
+    SWF_OBJ_BUTTON = 3,
+    SWF_OBJ_BITMAP = 4,
+    SWF_OBJ_FONT = 5,
+    SWF_OBJ_TXT = 6,
+    SWF_OBJ_EDITTEXT = 7
 } swfOBJECT_types;
 
 typedef struct {
