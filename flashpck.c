@@ -13,6 +13,11 @@
 #include "flashpck.h"
 
 
+// TODO:
+// Implement index swizzle function
+//           8bpp to 4bpp
+//           4bpp to 8bpp
+
 // just to make things more clear
 // when i refer to "character id", "object id" or whatever id,
 // i'm referring to its position in the swfOBJECTS array pointed by swfFILE.
@@ -78,10 +83,24 @@ int pckData_init(PckData* data, char* filename) {
     data->og_base_address = fileHeader.baseAddress;
 
     // Load data and close file
+    fseek(fin, 0, SEEK_SET);
+    fread(&data->header_bytes, sizeof(data->header_bytes), 1, fin);
     fseek(fin, 128, SEEK_SET);
     data->actual_data = malloc(data->data_size);
     fread(data->actual_data, data->data_size, 1, fin);
     fclose(fin);
+    return 0;
+}
+
+int pckData_write(PckData* data, char* filepath) {
+    FILE *f = fopen(filepath, "wb");
+    if (!f) {
+        perror("fopen");
+        return 1;
+    }
+    fwrite(data->header_bytes, sizeof(data->header_bytes), 1, f);
+    fwrite(data->actual_data, data->data_size, 1, f);
+    fclose(f);
     return 0;
 }
 
@@ -169,7 +188,7 @@ uint32_t avm1_size(AVM1Bytecode *code) {
     return (uint32_t)(opcode - (uint8_t *)code);
 }
 
-static void ps2_convert_palette32(const RGBAColor *src,
+void swfBITMAP_unswizzle_palette(const RGBAColor *src,
                                   RGBAColor *dst,
                                   size_t color_count)
 {
@@ -198,9 +217,38 @@ static void ps2_convert_palette32(const RGBAColor *src,
     }
 }
 
+void swfBITMAP_swizzle_palette(const RGBAColor *src,
+                            RGBAColor *dst,
+                            size_t color_count)
+{
+    const int stripes = 2;
+    const int colors  = 8;
+    const int blocks  = 2;
+
+    size_t index = 0;
+    size_t parts = color_count / 32;
+
+    for (size_t part = 0; part < parts; part++) {
+        for (int block = 0; block < blocks; block++) {
+            for (int stripe = 0; stripe < stripes; stripe++) {
+                for (int color = 0; color < colors; color++) {
+
+                    size_t palette_index =
+                        part * 32 +
+                        block * 8 +
+                        stripe * 16 +
+                        color;
+
+                    dst[palette_index] = src[index++];
+                }
+            }
+        }
+    }
+}
 
 
-static void swfBITMAP_unswizzle8(PckData* pck, uint8_t *dst,
+
+void swfBITMAP_unswizzle8(uint8_t *dst,
                        const uint8_t *src,
                        int width,
                        int height)
@@ -232,6 +280,39 @@ static void swfBITMAP_unswizzle8(PckData* pck, uint8_t *dst,
     }
 }
 
+void swfBITMAP_swizzle8(uint8_t *dst,
+                               const uint8_t *src,
+                               int width,
+                               int height)
+{
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+
+            int block_location =
+                (y & (~0xF)) * width +
+                (x & (~0xF)) * 2;
+
+            int swap_selector =
+                (((y + 2) >> 2) & 1) * 4;
+
+            int pos_y =
+                (((y & (~3)) >> 1) + (y & 1)) & 7;
+
+            int column_location =
+                pos_y * width * 2 +
+                ((x + swap_selector) & 7) * 4;
+
+            int byte_num =
+                ((y >> 1) & 1) +
+                ((x >> 2) & 2);
+
+            dst[block_location + column_location + byte_num] =
+                src[y * width + x];
+        }
+    }
+}
+
+// to rgba colors
 void swfBITMAP_extract_8bpp(PckData* pck, bmpInfo1 *info, RGBAColor **colors, uint8_t swizzle)
 {
     ps2Texture *data =
@@ -258,14 +339,14 @@ void swfBITMAP_extract_8bpp(PckData* pck, bmpInfo1 *info, RGBAColor **colors, ui
     }
     
     if (swizzle) {
-        swfBITMAP_unswizzle8(pck, indices, swizzled, width, height);
+        swfBITMAP_unswizzle8(indices, swizzled, width, height);
     } else {
         memcpy(indices, swizzled, num_pixels);
     }
 
     /* Unswizzle the 256-color CLUT */
     RGBAColor palette[256];
-    ps2_convert_palette32(idx_colors->indexed_colors, palette, 256);
+    swfBITMAP_unswizzle_palette(idx_colors->indexed_colors, palette, 256);
 
     /* Apply palette */
     for (size_t i = 0; i < num_pixels; i++) {
@@ -273,6 +354,44 @@ void swfBITMAP_extract_8bpp(PckData* pck, bmpInfo1 *info, RGBAColor **colors, ui
     }
 
     free(indices);
+}
+
+void swfBITMAP_4bpp_to_8bpp(const void* in_buffer,
+                            void* out_buffer,
+                            uint16_t width,
+                            uint16_t height)
+{
+    const uint8_t* src = (const uint8_t*)in_buffer;
+    uint8_t* dst = (uint8_t*)out_buffer;
+
+    uint32_t pixels = (uint32_t)width * height;
+
+    for (uint32_t i = 0, j = 0; i < pixels; i += 2, ++j) {
+        uint8_t byte = src[j];
+
+        dst[i] = byte & 0x0F;
+
+        if (i + 1 < pixels)
+            dst[i + 1] = byte >> 4;
+    }
+}
+
+void swfBITMAP_8bpp_to_4bpp(const void* in_buffer,
+                            void* out_buffer,
+                            uint16_t width,
+                            uint16_t height)
+{
+    const uint8_t* src = (const uint8_t*)in_buffer;
+    uint8_t* dst = (uint8_t*)out_buffer;
+
+    uint32_t pixels = (uint32_t)width * height;
+
+    for (uint32_t i = 0, j = 0; i < pixels; i += 2, ++j) {
+        uint8_t p0 = src[i] & 0x0F;
+        uint8_t p1 = (i + 1 < pixels) ? (src[i + 1] & 0x0F) : 0;
+
+        dst[j] = p0 | (p1 << 4);
+    }
 }
 
 swfFRAME *swfSPRITE_getframe(PckData *data, uint32_t frames_og, uint32_t position) {

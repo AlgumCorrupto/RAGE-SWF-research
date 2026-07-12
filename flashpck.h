@@ -17,6 +17,7 @@ extern "C" {
 typedef struct {
     uint32_t og_base_address;
     uint32_t data_size;
+    uint8_t header_bytes[0x80];
     void* actual_data;
 } PckData;
 
@@ -581,6 +582,7 @@ uint32_t pckData_get_rel_from_og(PckData* data, uint32_t og_addr);
 swfOBJECT_header *pckData_get_obj(PckData *data, int pos);
 int pckData_init(PckData* data, char* filename);
 void pckData_free(PckData* data);
+int pckData_write(PckData* data, char* filepath);
 
 RGBAColor add_color(RGBAColor c1, RGBAColor c2);
 RGBAColor mult_color(RGBAColor c1, RGBAColor c2);
@@ -588,6 +590,12 @@ RGBAColor xform_color(RGBAColor c1, swfCXFORMWITHAPLHA x);
 
 void swfBITMAP_extract_4bpp(PckData* pck, bmpInfo1* info, RGBAColor** colors);
 void swfBITMAP_extract_8bpp(PckData* pck, bmpInfo1 *info, RGBAColor **colors, uint8_t swizzle);
+void swfBITMAP_swizzle8(uint8_t *dst, const uint8_t* src, int width, int height);
+void swfBITMAP_unswizzle8(uint8_t *dst, const uint8_t* src, int width, int height);
+void swfBITMAP_4bpp_to_8bpp(const void* in_buffer, void* out_buffer, uint16_t width, uint16_t height);
+void swfBITMAP_8bpp_to_4bpp(const void* in_buffer, void* out_buffer, uint16_t width, uint16_t height);
+void swfBITMAP_swizzle_palette(const RGBAColor*src, RGBAColor* dst, size_t color_count);
+void swfBITMAP_unswizzle_palette(const RGBAColor*src, RGBAColor* dst, size_t color_count);
 
 uint32_t avm1_size(AVM1Bytecode* code);
 
