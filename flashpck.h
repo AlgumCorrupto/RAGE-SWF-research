@@ -88,6 +88,9 @@ typedef struct {
     uint8_t r, g, b, a;
 } RGBAColor;
 
+typedef struct {
+    int8_t r, g, b, a;
+} RGBAColorAdd;
 
 typedef struct {
     uint16_t unk3; // always 1
@@ -268,7 +271,7 @@ typedef struct {
 // by mult_term and then adds the result.
 typedef struct {
     RGBAColor mult_term;
-    RGBAColor add_term;
+    RGBAColorAdd add_term;
 } swfCXFORMWITHAPLHA;
 
 // i should have used C++ class inheritance here, basically everything swfCMD_* inherits from this
@@ -293,7 +296,7 @@ typedef struct {
     // insert swfCMD_Header here
     swfCMD_header header;
     uint16_t depth; 
-    uint16_t character_id; // if character is 0xFFFF, that means a eaew character needs to be created
+    uint16_t character_id; // if character is 0xFFFF, that means a new character needs to be created
     uint32_t packed_matrix_ptr; 
     uint32_t color_xform_ptr;
 } swfCMD_placeObject2;
@@ -307,7 +310,6 @@ typedef struct {
 // like moving the mouse cursor or whatever
 typedef struct {
     // insert swfCMD_Header here
-
     swfCMD_header header;
     uint16_t depth; 
     uint16_t character_id; // if character is 0xFFFF, that means a eaew character needs to be created
@@ -319,11 +321,10 @@ typedef struct {
     uint32_t name_ptr; // pointer to a standard ascii string that has the name of the movie clip
 } swfCMD_clipEvent;
 
-// command for you guessed it, removing stuff
 typedef struct {
     swfCMD_header header;
-    // insert swfCMD_Header here
-    // this command does not seem to be bigger
+    uint16_t depth;
+    uint16_t pad;
 } swfCMD_removeObject2;
 
 // command for executing code

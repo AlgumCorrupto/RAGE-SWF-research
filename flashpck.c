@@ -108,29 +108,27 @@ void pckData_free(PckData* data) {
     free(data->actual_data);
 }
 
-RGBAColor add_color(RGBAColor c1, RGBAColor c2) {
+static inline uint8_t clamp_u8(int x) {
+    if (x < 0)   return 0;
+    if (x > 255) return 255;
+    return (uint8_t)x;
+}
+
+static inline uint8_t xform_channel(uint8_t c, uint8_t mult, int8_t add) {
+    int v = ((int)c * (int)mult) >> 6; // divide by 64 (Q2.6)
+    v += add;
+    return clamp_u8(v);
+}
+
+RGBAColor xform_color(RGBAColor c, swfCXFORMWITHAPLHA x)
+{
     return (RGBAColor){
-        .a = c1.a + c2.a,
-        .b = c1.b + c2.b,
-        .g = c1.g + c2.g,
-        .r = c1.r + c2.r,
+        .r = xform_channel(c.r, x.mult_term.r, x.add_term.r),
+        .g = xform_channel(c.g, x.mult_term.g, x.add_term.g),
+        .b = xform_channel(c.b, x.mult_term.b, x.add_term.b),
+        .a = xform_channel(c.a, x.mult_term.a, x.add_term.a),
     };
 }
-
-RGBAColor mult_color(RGBAColor c1, RGBAColor c2) {
-    return (RGBAColor){
-        .a = c1.a * c2.a,
-        .b = c1.b * c2.b,
-        .g = c1.g * c2.g,
-        .r = c1.r * c2.r,
-    };
-}
-
-RGBAColor xform_color(RGBAColor c, swfCXFORMWITHAPLHA x) {
-
-    return add_color(x.add_term, mult_color(c, x.mult_term));
-}
-
 
 static uint8_t number_in(uint16_t number, uint16_t* arr, uint16_t count) {
     for(int i = 0; i < count; i++)
