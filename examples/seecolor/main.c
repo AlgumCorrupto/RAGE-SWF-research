@@ -39,14 +39,19 @@ void list_place(int frame_count, uint32_t first_frame) {
                         case SWF_OBJ_SHAPE: {
                             swfSHAPE* shape = (swfSHAPE*)header;
                             shape->display_list_ptr;
-                            swfSHAPE_FillStyle_data* data_p = pckData_get_ptr_from_og(
+                            swfSHAPE_FillStyle_data* fs_data = pckData_get_ptr_from_og(
                                 &pck, shape->fill_style_table
+                            );
+                            swfSHAPE_StrokeStyle_data* ss_data = pckData_get_ptr_from_og(
+                                &pck, shape->stroke_style_table
                             );
 
                             uint16_t* opcode = pckData_get_ptr_from_og(&pck, shape->display_list_ptr);
                             uint8_t ended = 0;
                             int current_fill = -1;
                             RGBAColor *colors = NULL;
+
+                            ended = 0;
 
                             while (!ended) {
                                 switch (*opcode) {
@@ -62,27 +67,52 @@ void list_place(int frame_count, uint32_t first_frame) {
                                         break;
                                     }
                         
-                                    case SH_STROKESTYLE_CHANGE:
+                                    case SH_STROKESTYLE_CHANGE: {
+                                        swfSHAPE_StrokeStyle *ss = (swfSHAPE_StrokeStyle*)opcode;
+                                        uint32_t addr = pckData_get_og_from_ptr(&pck, ss);
+                                        if(hmgeti(printed_colors, addr) != -1)
+                                            break;
+                                        hmput(printed_colors, addr, 1);
+                                        swfSHAPE_StrokeStyle_data *adata = &ss_data[ss->style_index - 1];
+                                        uint32_t color_address = 
+                                        pckData_get_og_from_ptr(&pck, &adata->color);
+                                        /* Only print if we haven't seen this color address before */
+                                            
+                                        printf("STROKE: 0x%.08x ",
+                                            color_address + 0x80 - pck.og_base_address);
+                                        print_color(adata->color);
+                                        printf("\n");
                                         opcode += 2;
                                         break;
-                        
+                                    }
                                     case SH_FILLSTYLE_CHANGE: {
                                         swfSHAPE_FillStyle *fs = (swfSHAPE_FillStyle *)opcode;
-                                        swfSHAPE_FillStyle_data *adata = &data_p[fs->style_index - 1];
+                                        uint32_t addr = pckData_get_og_from_ptr(&pck, fs);
+                                        if(hmgeti(printed_colors, addr) != -1)
+                                            break;
+                                        hmput(printed_colors, addr, 1);
+                                        swfSHAPE_FillStyle_data *adata = &fs_data[fs->style_index - 1];
                                     
-                                        if (adata->gradient_pointer == 0) {
-                                            uint32_t color_address =
-                                                pckData_get_og_from_ptr(&pck, &adata->color_data);
-                                        
-                                            /* Only print if we haven't seen this color address before */
-                                            if (hmgeti(printed_colors, color_address) == -1) {
-                                                hmput(printed_colors, color_address, 1);
-                                            
-                                                printf("SHAPE: 0x%.08x ",
-                                                       color_address + 0x80 - pck.og_base_address);
-                                                print_color(adata->color_data);
+                                        uint32_t color_address =
+                                            pckData_get_og_from_ptr(&pck, &adata->color_data);
+                                
+                                    
+                                        printf("SHAPE: 0x%.08x ",
+                                               color_address + 0x80 - pck.og_base_address);
+                                        print_color(adata->color_data);
+                                        printf("\n");
+
+                                        if(adata->gradient_pointer != 0) {
+                                            swfGRADIENT* grad = pckData_get_ptr_from_og(&pck, adata->gradient_pointer);
+                                            printf("GRADIENT BEGIN\n");
+                                            RGBAColor* colors = pckData_get_ptr_from_og(&pck, grad->colors_ptr);
+                                            for (size_t i = 0; i < grad->stops_count; i++) {
+                                                uint32_t address = pckData_get_og_from_ptr(&pck, &colors[i]);
+                                                printf("0x%.08x ", address + 0x80 - pck.og_base_address);
+                                                print_color(colors[i]);
                                                 printf("\n");
                                             }
+                                            printf("GRADIENT END\n");
                                         }
                                     
                                         opcode += 2;
@@ -173,9 +203,9 @@ int main(int argc, char** argv) {
     printf("\n");
     printf("TYPE: ADDRESS COLOR");
     printf("SHAPE means it is a shape or image\n");
-    printf("XFORM: color transforms that modifies SHAPE colors, "
+    printf("XFORM: color transforms that modifies SHAPE, GRADIENT and STROKE colors, "
         "it is 8 bytes, if you thing your shape is too dark or too bright, change the FIRST 4 bytes to 40 40 40 40 and the "
-        "LAST 4 to 00 00 00 00.");
+        "LAST 4 to 00 00 00 00.\n");
     printf("TEXT: Static text\n");
     printf("EDITTEXT: Dynamic text, that yellow text in the loading screen is also a dynamic text\n");
     printf("If you have any problems, HMU on discord, i'm rato.jpg\n");
