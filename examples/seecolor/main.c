@@ -8,9 +8,9 @@ PckData pck;
 typedef struct {
     uint32_t key;
     int value;
-} PrintedColor;
+} SeenStyle;
 
-PrintedColor *printed_colors = NULL;
+SeenStyle *seen_styles = NULL;
 
 void print_color(RGBAColor c) {
     printf("\x1b[38;2;%d;%d;%dm", c.r, c.g, c.b);
@@ -49,8 +49,6 @@ void list_place(int frame_count, uint32_t first_frame) {
                             uint16_t* opcode = pckData_get_ptr_from_og(&pck, shape->display_list_ptr);
                             uint8_t ended = 0;
                             int current_fill = -1;
-                            RGBAColor *colors = NULL;
-
                             ended = 0;
 
                             while (!ended) {
@@ -68,56 +66,81 @@ void list_place(int frame_count, uint32_t first_frame) {
                                     }
                         
                                     case SH_STROKESTYLE_CHANGE: {
-                                        swfSHAPE_StrokeStyle *ss = (swfSHAPE_StrokeStyle*)opcode;
-                                        uint32_t addr = pckData_get_og_from_ptr(&pck, ss);
-                                        if(hmgeti(printed_colors, addr) != -1)
+                                        swfSHAPE_StrokeStyle *ss =
+                                            (swfSHAPE_StrokeStyle*)opcode;
+                                    
+                                        swfSHAPE_StrokeStyle_data *adata =
+                                            &ss_data[ss->style_index - 1];
+                                    
+                                        uint32_t strokestyle_address =
+                                            pckData_get_og_from_ptr(&pck, adata);
+                                    
+                                        if(hmgeti(seen_styles, strokestyle_address) != -1) {
+                                            opcode += 2;
                                             break;
-                                        hmput(printed_colors, addr, 1);
-                                        swfSHAPE_StrokeStyle_data *adata = &ss_data[ss->style_index - 1];
-                                        uint32_t color_address = 
-                                        pckData_get_og_from_ptr(&pck, &adata->color);
-                                        /* Only print if we haven't seen this color address before */
-                                            
+                                        }
+                                    
+                                        hmput(seen_styles, strokestyle_address, 1);
+                                    
+                                        uint32_t color_address =
+                                            pckData_get_og_from_ptr(&pck, &adata->color);
+                                    
                                         printf("STROKE: 0x%.08x ",
                                             color_address + 0x80 - pck.og_base_address);
                                         print_color(adata->color);
                                         printf("\n");
+                                        
                                         opcode += 2;
                                         break;
                                     }
                                     case SH_FILLSTYLE_CHANGE: {
                                         swfSHAPE_FillStyle *fs = (swfSHAPE_FillStyle *)opcode;
-                                        uint32_t addr = pckData_get_og_from_ptr(&pck, fs);
-                                        if(hmgeti(printed_colors, addr) != -1)
+
+                                        swfSHAPE_FillStyle_data* adata =
+                                            &fs_data[fs->style_index - 1];
+
+                                        uint32_t fillstyle_address =
+                                            pckData_get_og_from_ptr(&pck, adata);
+
+                                        if(hmgeti(seen_styles, fillstyle_address) != -1) {
+                                            opcode += 2;
                                             break;
-                                        hmput(printed_colors, addr, 1);
-                                        swfSHAPE_FillStyle_data *adata = &fs_data[fs->style_index - 1];
+                                        }
+                                    
+                                        hmput(seen_styles, fillstyle_address, 1);
                                     
                                         uint32_t color_address =
                                             pckData_get_og_from_ptr(&pck, &adata->color_data);
-                                
                                     
                                         printf("SHAPE: 0x%.08x ",
                                                color_address + 0x80 - pck.og_base_address);
                                         print_color(adata->color_data);
                                         printf("\n");
-
+                                        
                                         if(adata->gradient_pointer != 0) {
-                                            swfGRADIENT* grad = pckData_get_ptr_from_og(&pck, adata->gradient_pointer);
+                                            swfGRADIENT* grad =
+                                                pckData_get_ptr_from_og(&pck, adata->gradient_pointer);
+                                        
                                             printf("GRADIENT BEGIN\n");
-                                            RGBAColor* colors = pckData_get_ptr_from_og(&pck, grad->colors_ptr);
-                                            for (size_t i = 0; i < grad->stops_count; i++) {
-                                                uint32_t address = pckData_get_og_from_ptr(&pck, &colors[i]);
+                                        
+                                            RGBAColor* colors =
+                                                pckData_get_ptr_from_og(&pck, grad->colors_ptr);
+                                        
+                                            for(size_t i = 0; i < grad->stops_count; i++) {
+                                                uint32_t address =
+                                                    pckData_get_og_from_ptr(&pck, &colors[i]);
+                                            
                                                 printf("0x%.08x ", address + 0x80 - pck.og_base_address);
                                                 print_color(colors[i]);
                                                 printf("\n");
                                             }
+                                        
                                             printf("GRADIENT END\n");
                                         }
                                     
                                         opcode += 2;
                                         break;
-                                    }
+                                    }                                   
                                 }
                             }
                         }
@@ -144,7 +167,7 @@ void list_place(int frame_count, uint32_t first_frame) {
 void look_for_text_colors(uint32_t text_records_ptr) {
     uint16_t* text_record_type = pckData_get_ptr_from_og(&pck, text_records_ptr);
 
-    uint8_t ended_text;
+    uint8_t ended_text = 0;
     while(!ended_text) {
         switch(*text_record_type) {
             case TR_END:
